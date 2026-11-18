@@ -1,0 +1,52 @@
+name: Release Windows EXE (tag)
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      QT_QPA_PLATFORM: offscreen
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: 'x64'
+          cache: pip
+          cache-dependency-path: requirements-build.txt
+      - name: Install dependencies
+        run: python -m pip install -r requirements-build.txt
+      - name: Run all unit and GUI smoke tests
+        run: python -m unittest discover -s tests -v
+      - name: Build Windows application
+        shell: cmd
+        run: >-
+          python -m PyInstaller --noconfirm --clean --onedir --windowed
+          --name SanGuoHuaRongDao
+          --icon "huarongdao\assets\icon.ico"
+          --add-data "huarongdao\assets;huarongdao\assets"
+          main.py
+      - name: Package and publish versioned release
+        shell: pwsh
+        run: |
+          Copy-Item LICENSE 'dist/SanGuoHuaRongDao/LICENSE.txt'
+          Copy-Item THIRD_PARTY_NOTICES.md 'dist/SanGuoHuaRongDao/THIRD_PARTY_NOTICES.md'
+          Copy-Item README.md 'dist/SanGuoHuaRongDao/README.md'
+          $tag = $env:GITHUB_REF_NAME
+          $asset = "SanGuoHuaRongDao-$tag-win-x64.zip"
+          Compress-Archive -Path 'dist/SanGuoHuaRongDao' -DestinationPath $asset -Force
+          $notePath = ".github/release-notes/$tag.md"
+          if (Test-Path $notePath) {
+            gh release create $tag $asset --title "三国华容道 $tag" --notes-file $notePath --verify-tag
+          } else {
+            gh release create $tag $asset --title "三国华容道 $tag" --generate-notes --verify-tag
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
