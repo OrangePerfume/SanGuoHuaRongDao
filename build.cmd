@@ -22,7 +22,7 @@ echo [2/5] Installing fixed game dependencies and build tool...
 "%P%" -m pip install --disable-pip-version-check -r requirements-build.txt
 if errorlevel 1 exit /b 1
 echo [3/5] Running headless puzzle and model tests...
-"%P%" -m unittest discover -s tests -v
+"%P%" -X faulthandler tools/run_tests.py --require-qt
 if errorlevel 1 (
     echo [ERROR] Tests failed. Build aborted.
     exit /b 1
