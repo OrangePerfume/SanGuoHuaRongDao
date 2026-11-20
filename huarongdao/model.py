@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 import time
 from typing import Callable
 
-from .core import START, shifted, valid, won
+from .core import START, shifted, shifted_group, valid, won
 
 
 @dataclass
@@ -13,6 +13,7 @@ class GameModel:
     clock: Callable[[], float] = time.monotonic
     positions: tuple[int, ...] = START
     history: list[tuple[int, ...]] = field(default_factory=list)
+    history_costs: list[int] = field(default_factory=list)
     steps: int = 0
     paused: bool = False
     _elapsed: float = 0.0
@@ -35,6 +36,7 @@ class GameModel:
     def reset(self) -> None:
         self.positions = START
         self.history.clear()
+        self.history_costs.clear()
         self.steps = 0
         self.paused = False
         self._elapsed = 0.0
@@ -52,6 +54,7 @@ class GameModel:
             if self._running_since is None:
                 self._running_since = self.clock()
             self.history.append(self.positions)
+            self.history_costs.append(1)
             self.positions = after
             self.steps += 1
             moved += 1
@@ -60,11 +63,46 @@ class GameModel:
                 break
         return moved
 
+    def move_group(self, indices: tuple[int, ...], dx: int, dy: int,
+                   count: int = 1) -> int:
+        """多选同步平移，全部合法才移动；一次操作为一个撤销单元。
+
+        返回实际移动的格数；每格每枚棋子各计一步，避免批量操作绕过计分。
+        """
+        if (self.paused or self.finished or type(count) is not int or count < 1 or
+                not isinstance(indices, (tuple, list)) or not indices):
+            return 0
+        if len(indices) == 1:
+            return self.move(indices[0], dx, dy, count)
+        original = self.positions
+        candidate = original
+        moved = 0
+        for _ in range(count):
+            after = shifted_group(candidate, indices, dx, dy)
+            if after is None:
+                break
+            candidate = after
+            moved += 1
+            if won(candidate):
+                break
+        if not moved:
+            return 0
+        if self._running_since is None:
+            self._running_since = self.clock()
+        self.history.append(original)
+        step_cost = len(indices) * moved
+        self.history_costs.append(step_cost)
+        self.positions = candidate
+        self.steps += step_cost
+        if self.finished:
+            self._freeze_time()
+        return moved
+
     def undo(self) -> bool:
         if not self.history or self.paused:
             return False
         self.positions = self.history.pop()
-        self.steps -= 1
+        self.steps -= self.history_costs.pop()
         if self._running_since is None and self.steps > 0:
             self._running_since = self.clock()
         if self.steps == 0:
@@ -95,6 +133,7 @@ class GameModel:
             raise ValueError("棋局无效")
         self.positions = positions
         self.history.clear()
+        self.history_costs.clear()
         self.steps = 0
         self.paused = False
         self._elapsed = 0

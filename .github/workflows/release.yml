@@ -40,6 +40,9 @@ jobs:
           Copy-Item LICENSE 'dist/SanGuoHuaRongDao/LICENSE.txt'
           Copy-Item THIRD_PARTY_NOTICES.md 'dist/SanGuoHuaRongDao/THIRD_PARTY_NOTICES.md'
           Copy-Item README.md 'dist/SanGuoHuaRongDao/README.md'
+          Copy-Item CHANGELOG.md 'dist/SanGuoHuaRongDao/CHANGELOG.md'
+          Copy-Item CONTRIBUTING.md 'dist/SanGuoHuaRongDao/CONTRIBUTING.md'
+          Copy-Item docs 'dist/SanGuoHuaRongDao/docs' -Recurse
           $tag = $env:GITHUB_REF_NAME
           $asset = "SanGuoHuaRongDao-$tag-win-x64.zip"
           Compress-Archive -Path 'dist/SanGuoHuaRongDao' -DestinationPath $asset -Force

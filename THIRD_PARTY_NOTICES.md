@@ -1,12 +1,14 @@
-# 第三方组件与许可 / Third-party notices
+[简体中文](THIRD_PARTY_NOTICES.md) · [繁體中文](docs/zh-TW/THIRD_PARTY_NOTICES.md) · [English](docs/en/THIRD_PARTY_NOTICES.md)
 
-本项目采用 Python、PySide6 / Qt、PyInstaller（构建工具）；绘图辅助脚本使用 Pillow、NumPy。各组件不是本项目的 MIT 许可代码，仍应遵守其上游许可证。
+# 第三方组件与许可声明
 
-- PySide6 / Qt for Python: https://doc.qt.io/qtforpython-6/index.html （LGPLv3 / GPLv3 或商业许可，依具体模块及分发方式而定）
-- PyInstaller: https://pyinstaller.org/en/stable/license.html （GPL 与打包分发例外）
-- Pillow: https://python-pillow.github.io/ （HPND 等，查看具体版本）
-- NumPy: https://numpy.org/doc/stable/license.html （BSD-3-Clause 等）
+项目使用 Python、PySide6 / Qt；Windows 构建使用 PyInstaller，素材生成工具涉及 Pillow 与 NumPy。这些第三方项目**不因本项目采用 MIT 而变更其各自许可**。
 
-如二进制分发包含 Qt 的 DLL、插件或其他第三方组件，需要在发行包中包含相应的许可和声明，并遵守 LGPLv3 的用户可替换、重链接等适用要求。项目公开源码并不能自动替代完整的二进制合规核对。
+- [PySide6 / Qt for Python](https://doc.qt.io/qtforpython-6/index.html): LGPLv3 / GPLv3 or commercial license, depending on modules and distribution.
+- [PyInstaller](https://pyinstaller.org/en/stable/license.html): GPL with a bundling exception.
+- [Pillow](https://python-pillow.github.io/): HPND-style terms; check the included version.
+- [NumPy](https://numpy.org/doc/stable/license.html): BSD-3-Clause-style terms; check the included version.
 
-Original character art was AI-assisted and project textures/icons were procedurally generated. No third-party TV/movie/game screenshots are included.
+如 Windows 发布包包含 Qt DLL、插件及其他依赖，应核对各自许可证，并随包提供适用的许可文本与声明，履行 LGPL 等条款下涉及用户替换、重新链接的适用义务。公开项目源码不能自动代替二进制再分发合规核对。
+
+三国人物素材由 AI 辅助制作，棋盘纹理与图标由程序生成；项目不包含影视或其他游戏的现成截图。项目自身的许可见 [LICENSE](LICENSE)。

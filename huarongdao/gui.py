@@ -14,10 +14,10 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication, QFrame, QHBoxLayout, QLabel, QMainWindow, QMessageBox,
-    QPushButton, QSizePolicy, QVBoxLayout, QWidget,
+    QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
 )
 
-from .core import BOARD_W, BOARD_H, PIECES, START, occupied_by, shifted
+from .core import BOARD_W, PIECES, destination_footprints, occupied_by, shifted_group, target_for_click
 from .model import GameModel
 from .records import RecordStore
 
@@ -66,6 +66,7 @@ def image_fill(painter: QPainter, pixmap: QPixmap, dest: QRectF, bias_y: float =
 
 class BoardWidget(QWidget):
     move_requested = Signal(int, int, int, int)
+    group_move_requested = Signal(object, int, int, int)
     selection_changed = Signal(str)
 
     def __init__(self, game: GameModel, parent: QWidget | None = None):
@@ -78,12 +79,13 @@ class BoardWidget(QWidget):
         self._images = [QPixmap(str(ASSETS / "portraits" / f"{name}.png")) for name in PORTRAITS]
         self._board = QPixmap(str(ASSETS / "wood_board.jpg"))
         self._dark = QPixmap(str(ASSETS / "wood_dark.jpg"))
-        self._selected: int | None = None
+        self._selected: set[int] = set()
+        # 仅在主动选择目标时显示绿色完整棋子落点；移动成功后不再残留。
+        self._targets_visible = False
         self._pressed_pos: QPointF | None = None
         self._pressed_index: int | None = None
-        self._preview: tuple[int, int] | None = None
-        self._anim_index: int | None = None
-        self._anim_from = 0
+        self._preview: dict[int, int] | None = None
+        self._anim_origins: dict[int, int] = {}
         self._anim_t = 1.0
         self._animation = QVariantAnimation(self)
         self._animation.setDuration(145)
@@ -110,6 +112,20 @@ class BoardWidget(QWidget):
         return QRectF(x0 + x * unit + 3, y0 + y * unit + 3,
                       piece.w * unit - 6, piece.h * unit - 6)
 
+    def _hint_rects(self) -> tuple[QRectF, ...]:
+        """每个合法终点画完整棋子外框，按棋子形状计算，而非逐格高亮。"""
+        if not self._selected or not self._targets_visible or self.game.paused or self.game.finished:
+            return ()
+        x0, y0, unit = self._layout()
+        return tuple(
+            QRectF(x0 + cx * unit + 7, y0 + cy * unit + 7,
+                   width * unit - 14, height * unit - 14)
+            for _destination, footprints in destination_footprints(
+                self.game.positions, tuple(sorted(self._selected))
+            )
+            for _index, cx, cy, width, height in footprints
+        )
+
     def _at(self, point: QPointF) -> int | None:
         x0, y0, unit = self._layout()
         cx = math.floor((point.x() - x0) / unit)
@@ -121,25 +137,54 @@ class BoardWidget(QWidget):
         self.update()
 
     def _end_animation(self) -> None:
-        self._anim_index = None
+        self._anim_origins.clear()
         self._anim_t = 1.0
         self.update()
 
     def animate(self, index: int, original_pos: int) -> None:
+        self.animate_group({index: original_pos})
+
+    def animate_group(self, original_positions: dict[int, int]) -> None:
         self._animation.stop()
-        self._anim_index = index
-        self._anim_from = original_pos
+        self._anim_origins = original_positions.copy()
         self._anim_t = 0.0
         self._animation.start()
 
     def clear_animation(self) -> None:
         self._animation.stop()
-        self._anim_index = None
+        self._anim_origins.clear()
         self._anim_t = 1.0
         self._pressed_index = None
         self._pressed_pos = None
         self._preview = None
         self.update()
+
+    def clear_selection(self) -> None:
+        self._selected.clear()
+        self._emit_selection()
+
+    def hide_targets(self) -> None:
+        """成功移动后关闭落点提示；键盘操作仍可保留当前棋子选择。"""
+        self._targets_visible = False
+        self.update()
+
+    def _emit_selection(self) -> None:
+        self._targets_visible = bool(self._selected)
+        names = [PIECES[i].name if i < 6 else '小兵' for i in sorted(self._selected)]
+        if not names:
+            self.selection_changed.emit('无')
+        elif len(names) == 1:
+            self.selection_changed.emit(names[0])
+        else:
+            self.selection_changed.emit(f'{len(names)} 枚 · ' + '、'.join(names))
+        self.update()
+
+    def _request_move(self, dx: int, dy: int, count: int) -> None:
+        indices = tuple(sorted(self._selected))
+        if len(indices) == 1:
+            self.move_requested.emit(indices[0], dx, dy, count)
+        elif len(indices) > 1:
+            self.group_move_requested.emit(indices, dx, dy, count)
 
     def _draw_piece(self, painter: QPainter, i: int, rect: QRectF, selected: bool = False) -> None:
         painter.save()
@@ -236,29 +281,33 @@ class BoardWidget(QWidget):
         painter.setPen(c("#512A17"))
         painter.setFont(font(12,True))
         painter.drawText(exit_rect, Qt.AlignmentFlag.AlignCenter, "▼  华 容 道 出 口  ▼")
-        # 所有棋子按逻辑位置绘制；移动中的棋子额外做平滑插值。
+        # 多选同步动画与多棋子预览；不改变逻辑状态。
         for i in range(len(PIECES)):
             rect = self._piece_rect(i)
-            if self._anim_index == i:
+            if i in self._anim_origins:
                 old = list(self.game.positions)
-                old[i] = self._anim_from
-                old_rect = self._piece_rect(i,tuple(old))
+                old[i] = self._anim_origins[i]
+                old_rect = self._piece_rect(i, tuple(old))
                 rect = QRectF(
                     old_rect.x() + (rect.x()-old_rect.x())*self._anim_t,
                     old_rect.y() + (rect.y()-old_rect.y())*self._anim_t,
-                    rect.width(),rect.height(),
+                    rect.width(), rect.height(),
                 )
-            if self._preview is not None and i == self._pressed_index:
-                # 拖动时显示半透明原位置，同时在合法目的地预览。
-                pi, destination=self._preview
-                new = list(self.game.positions)
-                new[pi] = destination
-                if destination != self.game.positions[pi]:
-                    painter.setOpacity(0.34)
-                    self._draw_piece(painter,i,rect,True)
-                    painter.setOpacity(1)
-                    rect=self._piece_rect(i,tuple(new))
-            self._draw_piece(painter,i,rect,i == self._selected)
+            if self._preview is not None and i in self._preview:
+                ghost = list(self.game.positions)
+                ghost[i] = self._preview[i]
+                painter.setOpacity(0.30)
+                self._draw_piece(painter, i, rect, True)
+                painter.setOpacity(1.0)
+                rect = self._piece_rect(i, tuple(ghost))
+            self._draw_piece(painter, i, rect, i in self._selected)
+        # 移动提示按「整块棋子在目标位置的占地矩形」绘制。
+        # 绘制在棋子之上，含与原位置重合的区域，确保 1×2 / 2×1 / 2×2
+        # 分别是一整个长方形 / 大正方形，而不是数个互不相连的 1×1 色块。
+        for hint in self._hint_rects():
+            painter.setBrush(c('#8CC786', 65))
+            painter.setPen(QPen(c('#D8F0B4', 215), 2.2))
+            painter.drawRoundedRect(hint, 9, 9)
         if self.game.paused:
             painter.fillRect(board_rect,c("#120B08",188))
             painter.setPen(c("#F2D6A0"))
@@ -283,68 +332,108 @@ class BoardWidget(QWidget):
         return (0,1 if delta.y()>0 else -1,max(1,round(abs(delta.y())/unit)))
 
     def mousePressEvent(self,event) -> None:
-        if event.button()!=Qt.MouseButton.LeftButton or self.game.paused or self.game.finished:
+        if self.game.paused or self.game.finished:
             return
         self.setFocus()
-        self._pressed_pos=event.position()
-        self._pressed_index=self._at(event.position())
-        self._selected=self._pressed_index
-        self._preview=None
-        if self._selected is not None:
-            self.selection_changed.emit(PIECES[self._selected].name if self._selected<6 else "小兵")
+        if event.button() == Qt.MouseButton.RightButton:
+            self.clear_selection()
+            self.clear_animation()
+            return
+        if event.button() != Qt.MouseButton.LeftButton:
+            return
+        index = self._at(event.position())
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            # Ctrl + 点击：逐个加入或移出选择，不影响棋局状态。
+            if index is not None:
+                if index in self._selected:
+                    self._selected.remove(index)
+                else:
+                    self._selected.add(index)
+                self._emit_selection()
+            self._pressed_pos = None
+            self._pressed_index = None
+            self._preview = None
+            return
+        self._pressed_pos = event.position()
+        self._pressed_index = index
+        self._preview = None
+        if index is not None:
+            if index not in self._selected:
+                self._selected = {index}
+            # 再次点击已选棋子，也应重新显示可达格。
+            self._emit_selection()
         self.update()
 
     def mouseMoveEvent(self,event) -> None:
         if self._pressed_pos is None or self._pressed_index is None or self.game.paused:
             return
-        direction=self._drag_direction(event.position()-self._pressed_pos)
-        self._preview=None
+        direction = self._drag_direction(event.position()-self._pressed_pos)
+        self._preview = None
         if direction is not None:
-            dx,dy,count=direction
-            candidate=self.game.positions
+            dx, dy, count = direction
+            indices = tuple(sorted(self._selected))
+            candidate = self.game.positions
             for _ in range(count):
-                next_state=shifted(candidate,self._pressed_index,dx,dy)
+                next_state = shifted_group(candidate, indices, dx, dy)
                 if next_state is None:
                     break
-                candidate=next_state
+                candidate = next_state
             if candidate != self.game.positions:
-                dest=candidate[self._pressed_index]
-                self._preview=(self._pressed_index,dest)
+                self._preview = {i: candidate[i] for i in indices}
         self.update()
 
     def mouseReleaseEvent(self,event) -> None:
-        if event.button()!=Qt.MouseButton.LeftButton:
+        if event.button() != Qt.MouseButton.LeftButton or self._pressed_pos is None:
             return
-        if self._pressed_pos is not None and self._pressed_index is not None:
-            direction=self._drag_direction(event.position()-self._pressed_pos)
+        direction = self._drag_direction(event.position() - self._pressed_pos)
+        original = self.game.positions
+        if self._pressed_index is not None:
             if direction is not None:
-                dx,dy,count=direction
-                self.move_requested.emit(self._pressed_index,dx,dy,count)
-        self._pressed_pos=None
-        self._pressed_index=None
-        self._preview=None
+                self._request_move(*direction)
+            else:
+                # 单击已有多选组员，切换回单选；拖动则保留组成员。
+                self._selected = {self._pressed_index}
+                self._emit_selection()
+        elif direction is None and self._selected:
+            # 单击空格：将单选/多选棋子自动移动至点击空格。
+            x0, y0, unit = self._layout()
+            cx = math.floor((event.position().x() - x0)/unit)
+            cy = math.floor((event.position().y() - y0)/unit)
+            move = target_for_click(self.game.positions, tuple(sorted(self._selected)), cx, cy)
+            if move is not None:
+                self._request_move(*move)
+        # 仅在实际发生位移后取消选择；无效目标不打断操作。
+        if self.game.positions != original:
+            self.clear_selection()
+        self._pressed_pos = None
+        self._pressed_index = None
+        self._preview = None
         self.update()
 
     def keyPressEvent(self,event) -> None:
         if self.game.paused or self.game.finished:
             super().keyPressEvent(event)
             return
-        key=event.key()
-        if key in (Qt.Key.Key_Tab, Qt.Key.Key_Backtab):
-            inc=-1 if key==Qt.Key.Key_Backtab else 1
-            self._selected=((self._selected if self._selected is not None else -1)+inc)%len(PIECES)
-            self.selection_changed.emit(PIECES[self._selected].name if self._selected<6 else "小兵")
-            self.update()
+        key = event.key()
+        if key == Qt.Key.Key_Escape:
+            self.clear_selection()
             event.accept()
             return
-        direction={
-            Qt.Key.Key_Left: (-1,0),Qt.Key.Key_A: (-1,0),
-            Qt.Key.Key_Right: (1,0),Qt.Key.Key_D: (1,0),
-            Qt.Key.Key_Up: (0,-1),Qt.Key.Key_W: (0,-1),
-            Qt.Key.Key_Down: (0,1),Qt.Key.Key_S: (0,1),
+        if key in (Qt.Key.Key_Tab, Qt.Key.Key_Backtab):
+            increment = -1 if key == Qt.Key.Key_Backtab else 1
+            previous = next(iter(self._selected)) if len(self._selected) == 1 else -1
+            self._selected = {(previous + increment) % len(PIECES)}
+            self._emit_selection()
+            event.accept()
+            return
+        direction = {
+            Qt.Key.Key_Left:(-1,0), Qt.Key.Key_A:(-1,0),
+            Qt.Key.Key_Right:(1,0), Qt.Key.Key_D:(1,0),
+            Qt.Key.Key_Up:(0,-1), Qt.Key.Key_W:(0,-1),
+            Qt.Key.Key_Down:(0,1), Qt.Key.Key_S:(0,1),
         }.get(key)
-        if direction and self._selected is not None:
-            self.move_requested.emit(self._selected,*direction,1)
+        if direction and self._selected:
+            self._request_move(*direction, 1)
             event.accept()
             return
         super().keyPressEvent(event)
@@ -352,9 +441,9 @@ class BoardWidget(QWidget):
     def focusNextPrevChild(self, next: bool) -> bool:
         if not self.game.paused and not self.game.finished:
             increment = 1 if next else -1
-            self._selected = ((self._selected if self._selected is not None else (-1 if next else 0)) + increment) % len(PIECES)
-            self.selection_changed.emit(PIECES[self._selected].name if self._selected < 6 else "小兵")
-            self.update()
+            previous = sorted(self._selected)[0] if len(self._selected) == 1 else (-1 if next else 0)
+            self._selected = {(previous + increment) % len(PIECES)}
+            self._emit_selection()
             return True
         return super().focusNextPrevChild(next)
 
@@ -426,7 +515,7 @@ class MainWindow(QMainWindow):
             writable = str(Path.home()/'.sanguo_huarongdao')
         self.records=RecordStore(Path(writable)/'best.json')
         self.best=self.records.load()
-        self.setWindowTitle('三国华容道 · 横刀立马  |  V0.1.0')
+        self.setWindowTitle('三国华容道 · 横刀立马  |  V0.2.0')
         self.setWindowIcon(QIcon(str(ASSETS/'icon.png')))
         self.setMinimumSize(990,700)
         self.resize(1170,840)
@@ -465,10 +554,28 @@ class MainWindow(QMainWindow):
         main.setSpacing(17)
         self.board=BoardWidget(self.game)
         self.board.move_requested.connect(self._make_move)
+        self.board.group_move_requested.connect(self._make_group_move)
         self.board.selection_changed.connect(lambda name: self.selected_info.setText('当前选中：'+name))
         main.addWidget(self.board,5)
         side=ParchmentPanel()
-        side.setMinimumWidth(300)
+        # 外层侧栏可滚动：极小窗口/高 DPI 下即便控制区本身变高，
+        # 仍可到达底部提示框，而不是让布局把其裁切。
+        self.side_scroll = QScrollArea()
+        self.side_scroll.setObjectName('sideScroll')
+        self.side_scroll.setWidgetResizable(True)
+        self.side_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.side_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.side_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.side_scroll.setMinimumWidth(300)
+        self.side_scroll.setMaximumWidth(400)
+        self.side_scroll.setStyleSheet('''
+            QScrollArea#sideScroll { background:transparent; border:none; }
+            QScrollBar:vertical { background:#50321E; width:11px; }
+            QScrollBar::handle:vertical { background:#B38A59; border-radius:4px; min-height:24px; }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height:0; }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background:none; }
+        ''')
+        side.setMinimumWidth(0)
         side.setMaximumWidth(400)
         side_layout=QVBoxLayout(side)
         side_layout.setContentsMargins(27,24,27,22)
@@ -523,19 +630,73 @@ class MainWindow(QMainWindow):
         self.pause_button.clicked.connect(self._pause)
         self.selected_info=QLabel('当前选中：无')
         self.selected_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.selected_info.setWordWrap(True)
         self.selected_info.setFont(font(11))
         self.selected_info.setStyleSheet('color:#714C37; background:transparent; padding-top:6px;')
         side_layout.addWidget(self.selected_info)
-        side_layout.addStretch(1)
-        rules=QLabel('玩法提示\n\n鼠标：按住人物棋子拖动\n键盘：点击选中棋子后按方向键 / WASD\n快捷键：Ctrl+Z 撤销 · R 重开 · 空格暂停\n\n每移动一格记一步，棋子不可旋转。')
-        rules.setWordWrap(True)
-        rules.setFont(font(10))
-        rules.setStyleSheet('color:#63442D; border:1px solid #C9A87F; border-radius:8px; background:#F5E4C6; padding:10px 12px;')
-        side_layout.addWidget(rules)
-        main.addWidget(side,3)
+        # 玩法提示作为独立的可滚动区域：低分辨率、高 DPI 和窄侧栏下
+        # 不会再依赖 QLabel 被压缩后的固定高度，亦不会裁切最后几行说明。
+        self.help_scroll = QScrollArea(side)
+        self.help_scroll.setObjectName('helpScroll')
+        self.help_scroll.setWidgetResizable(True)
+        self.help_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.help_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.help_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.help_scroll.setMinimumHeight(112)
+        self.help_scroll.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        self.help_scroll.setStyleSheet('''
+            QScrollArea#helpScroll { background:#F5E4C6;
+                border:1px solid #C9A87F; border-radius:8px; }
+            QScrollArea#helpScroll > QWidget > QWidget { background:#F5E4C6; }
+            QScrollBar:vertical { background:#E9D4AF; width:11px; margin:3px; }
+            QScrollBar::handle:vertical { background:#A77B4A; border-radius:4px; min-height:24px; }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height:0; }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background:none; }
+        ''')
+        help_content = QWidget()
+        help_content.setObjectName('helpContent')
+        help_content.setStyleSheet('background:#F5E4C6;')
+        help_layout = QVBoxLayout(help_content)
+        help_layout.setContentsMargins(13,11,13,12)
+        help_layout.setSpacing(4)
+        help_heading = QLabel('玩 法 提 示')
+        help_heading.setFont(font(12,True))
+        help_heading.setStyleSheet('color:#593A27; background:transparent;')
+        help_layout.addWidget(help_heading)
+        # 使用短句和分组说明；布局负责换行，长文字可向下滚动查看。
+        help_entries = (
+            ('点击 / 拖动', '选中人物后点击绿色目标位置，或按住棋子拖动。'),
+            ('多人同向移动', 'Ctrl+点击多枚棋子，再同向拖动或点击目标位置。'),
+            ('绿色提示', '按整块棋子占位显示；移动成功后自动清除。'),
+            ('键盘操作', '方向键 / WASD 移动选中棋子。'),
+            ('快捷键', 'Ctrl+Z 撤销 · Esc 取消选中\nR 重开 · 空格暂停/继续'),
+            ('计步与撤销', '每枚棋子每移动一格记一步；整组移动可一次撤销。'),
+        )
+        self.help_labels = []
+        for heading, explanation in help_entries:
+            heading_label = QLabel(heading)
+            heading_label.setFont(font(10, True))
+            heading_label.setStyleSheet('color:#68452F; background:transparent;')
+            help_layout.addWidget(heading_label)
+            description_label = QLabel(explanation)
+            description_label.setWordWrap(True)
+            description_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+            description_label.setFont(font(10))
+            description_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            description_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+            description_label.setStyleSheet('color:#63442D; background:transparent;')
+            help_layout.addWidget(description_label)
+            help_layout.addSpacing(5)
+            self.help_labels.append(description_label)
+        self.help_scroll.setWidget(help_content)
+        side_layout.addWidget(self.help_scroll, 1)
+        self.side_scroll.setWidget(side)
+        main.addWidget(self.side_scroll,3)
         page.addLayout(main,1)
-        foot=QLabel('提示：拖动可连续移动多格；棋子移动前会检查整条路径是否畅通。')
+        foot=QLabel('提示：绿色轮廓表示整块棋子的合法目标位置；点未被棋子占用的绿色区域即可移动。Ctrl+点击可多选。')
         foot.setFont(font(10))
+        foot.setWordWrap(True)
+        foot.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         foot.setStyleSheet('color:#D7B88C; padding:6px 4px;')
         page.addWidget(foot)
         QShortcut(QKeySequence('Ctrl+Z'),self,activated=self._undo)
@@ -579,10 +740,21 @@ class MainWindow(QMainWindow):
         old=self.game.positions[index]
         changed=self.game.move(index,dx,dy,count)
         if changed:
+            self.board.hide_targets()
             self.board.animate(index,old)
             self._update_stats()
             if self.game.finished:
                 QTimer.singleShot(210,self._win)
+
+    def _make_group_move(self, indices: tuple[int, ...], dx: int, dy: int, count: int) -> None:
+        original = {i: self.game.positions[i] for i in indices}
+        changed = self.game.move_group(indices, dx, dy, count)
+        if changed:
+            self.board.hide_targets()
+            self.board.animate_group(original)
+            self._update_stats()
+            if self.game.finished:
+                QTimer.singleShot(210, self._win)
 
     def _win(self) -> None:
         if not self.game.finished:
@@ -602,6 +774,7 @@ class MainWindow(QMainWindow):
 
     def _undo(self) -> None:
         if self.game.undo():
+            self.board.clear_selection()
             self.board.clear_animation()
             self._update_stats()
 
@@ -612,7 +785,7 @@ class MainWindow(QMainWindow):
                                     QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
                 return
         self.game.reset()
-        self.board._selected=None
+        self.board.clear_selection()
         self.board.clear_animation()
         self.selected_info.setText('当前选中：无')
         self._update_stats()

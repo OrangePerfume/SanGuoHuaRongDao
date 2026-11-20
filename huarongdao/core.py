@@ -102,6 +102,107 @@ def shifted(positions: tuple[int, ...], index: int, dx: int, dy: int,
     return tuple(result)
 
 
+
+def shifted_group(positions: tuple[int, ...], indices: tuple[int, ...],
+                  dx: int, dy: int, amount: int = 1) -> tuple[int, ...] | None:
+    """将多枚棋子作为一个整体平移；每个经过的格位均不得越界或与其他棋子重叠。
+
+    组内棋子可同步进入其他组员原先的位置。验证成功才返回新的状态；绝不部分提交。
+    """
+    if (not isinstance(indices, (tuple, list)) or not indices or
+            any(type(i) is not int or i < 0 or i >= len(PIECES) for i in indices) or
+            len(set(indices)) != len(indices) or abs(dx) + abs(dy) != 1 or
+            type(amount) is not int or amount < 1):
+        return None
+    static = 0
+    moving = set(indices)
+    for i, piece in enumerate(PIECES):
+        if i not in moving:
+            static |= mask(piece.w, piece.h, positions[i])
+    for step in range(1, amount + 1):
+        group_mask = 0
+        for i in indices:
+            piece = PIECES[i]
+            x, y = positions[i] % BOARD_W, positions[i] // BOARD_W
+            x += step * dx
+            y += step * dy
+            if x < 0 or y < 0 or x + piece.w > BOARD_W or y + piece.h > BOARD_H:
+                return None
+            moved_mask = mask(piece.w, piece.h, y * BOARD_W + x)
+            if moved_mask & (static | group_mask):
+                return None
+            group_mask |= moved_mask
+    result = list(positions)
+    for i in indices:
+        x, y = positions[i] % BOARD_W, positions[i] // BOARD_W
+        result[i] = (y + amount * dy) * BOARD_W + x + amount * dx
+    return tuple(result)
+
+
+@dataclass(frozen=True)
+class MoveDestination:
+    """一个合法的直线移动终点；positions 包含移动后各棋子的完整占位。"""
+
+    dx: int
+    dy: int
+    amount: int
+    positions: tuple[int, ...]
+
+
+def legal_destinations(positions: tuple[int, ...],
+                       indices: tuple[int, ...]) -> tuple[MoveDestination, ...]:
+    """枚举可到达的整块棋子终点，而非逐个枚举高亮的 1×1 空格。
+
+    曹操保持 2×2；横将为 2×1；竖将为 1×2；士兵为 1×1。
+    多选时，所有棋子在相同方向、相同步长下移动；校验和移动引擎一致。
+    """
+    result: list[MoveDestination] = []
+    for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+        for amount in range(1, max(BOARD_W, BOARD_H)):
+            outcome = shifted_group(positions, indices, dx, dy, amount)
+            if outcome is None:
+                break
+            result.append(MoveDestination(dx, dy, amount, outcome))
+    return tuple(result)
+
+
+def destination_footprints(positions: tuple[int, ...],
+                           indices: tuple[int, ...]
+                           ) -> tuple[tuple[MoveDestination, tuple[tuple[int, int, int, int, int], ...]], ...]:
+    """每个终点的完整棋子矩形：(棋子编号, 起始列, 起始行, 宽, 高)。
+
+    供 GUI 绘制完整的圆角提示框；格子内不产生分割线。
+    """
+    selections = tuple(sorted(indices))
+    return tuple(
+        (dest, tuple(
+            (i, dest.positions[i] % BOARD_W, dest.positions[i] // BOARD_W,
+             PIECES[i].w, PIECES[i].h)
+            for i in selections
+        ))
+        for dest in legal_destinations(positions, selections)
+    )
+
+
+def target_for_click(positions: tuple[int, ...], indices: tuple[int, ...],
+                     x: int, y: int) -> tuple[int, int, int] | None:
+    """点击一个空格后，找到使选中棋子覆盖该空格的最近合法直线移动。
+
+    不允许点击已被占用的格子后交换棋子，也不允许绕弯、跳跃、旋转。
+    """
+    if not indices or occupied_by(positions, x, y) is not None:
+        return None
+    possibilities: list[tuple[int, int, int]] = []
+    for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+        for count in range(1, max(BOARD_W, BOARD_H)):
+            outcome = shifted_group(positions, indices, dx, dy, count)
+            if outcome is None:
+                break
+            if occupied_by(outcome, x, y) in indices:
+                possibilities.append((dx, dy, count))
+                break
+    return min(possibilities, key=lambda entry: entry[2], default=None)
+
 def canonical(positions: tuple[int, ...]) -> tuple[int, ...]:
     """同尺寸棋子不可区分；消去标号带来的等价状态。"""
     return (positions[0], positions[1], *sorted(positions[2:6]),

@@ -1,0 +1,12 @@
+V0.2.0 — 后续版本 / 後續版本 / Next release
+
+简体中文：
+在 OrangePerfume/SanGuoHuaRongDao 的 V0.1.0 基础上更新本版代码与三语文档。保留 V0.1.0 标签不变，单独提交 V0.2.0 的功能。使用 Windows CI 验证通过后再创建 v0.2.0 标签。此 ZIP 不会自动发布到 GitHub。
+
+繁體中文：
+請以 OrangePerfume/SanGuoHuaRongDao 的 V0.1.0 為基礎，提交本版程式及三語文件。勿變更 V0.1.0 標籤。Windows CI 驗證成功後，再建立 v0.2.0 標籤。本 ZIP 不會自動發佈至 GitHub。
+
+English:
+Build on V0.1.0 in OrangePerfume/SanGuoHuaRongDao. Commit the V0.2.0 functionality and all three document languages as a separate change. Do not move the V0.1.0 tag. Create v0.2.0 only after Windows CI verification. This ZIP does not publish automatically.
+
+New: click-to-move, Ctrl multi-selection, grouped undo, full-footprint destination hints.

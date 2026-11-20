@@ -1,38 +1,48 @@
-# 三国华容道 · 横刀立马 / Three Kingdoms Klotski
+[简体中文](README.md) · [繁體中文](docs/zh-TW/README.md) · [English](docs/en/README.md)
 
-[![Windows CI](https://github.com/OrangePerfume/SanGuoHuaRongDao/actions/workflows/ci.yml/badge.svg)](https://github.com/OrangePerfume/SanGuoHuaRongDao/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+# 三国华容道 · 横刀立马（V0.2.0）
 
-一款适用于 **Windows 10 / Windows 11** 的离线单机华容道游戏：经典「横刀立马」规则、彩色木质棋盘、原创三国人物插画。向经典文曲星益智游戏的玩法致意，但不照搬黑白屏幕。
+[![Windows CI](https://github.com/OrangePerfume/SanGuoHuaRongDao/actions/workflows/ci.yml/badge.svg)](https://github.com/OrangePerfume/SanGuoHuaRongDao/actions/workflows/ci.yml) [![MIT License](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
-**计划首发版本：v0.1.0**。这是首个公开发布的功能版本，仍处于持续开发和完善阶段。
+一款面向 **Windows 10 / 11** 的完全离线单机华容道游戏：保留经典「横刀立马」玩法，采用彩色木质棋盘与三国人物插画。怀旧的是玩法，而不是黑白屏幕。
 
-![使用项目人物素材和木质棋盘资源绘制的静态预览；不是 Windows 游戏实机截图](PREVIEW.png)
+**版本：0.2.0**。本版在 V0.1.0 基础上新增点击移动及同向多选。
 
-> 图片为项目资源制作的静态预览，不是 Windows 上的实际截图。界面与操作体验以运行的 EXE 为准。
+![项目素材生成的静态预览，不是 Windows 实机截图](PREVIEW.png)
 
-## 游戏玩法
+> 上图为项目素材静态预览，不代表 Windows 实际渲染效果。程序界面语言仍为简体中文；这里提供的是三种语言的**项目文档**。
 
-- 标准 **4×5 横刀立马** 棋局，10 枚棋子和 2 个空位。
-- 曹操 **2×2**，关羽 **2×1**，四员竖将 **1×2**，四名小兵 **1×1**。
-- 不允许穿越棋子、重叠、旋转；把曹操移至棋盘**底部中央**即可获胜。
-- **鼠标**：按住棋子水平或垂直拖动，支持路径合法时连续移动多格。
-- **键盘**：选中棋子后，方向键或 WASD 移动；Ctrl+Z 撤销，R 重开，空格暂停或继续。
-- **计步与计时**：每移动一格计一步，首次有效移动后开始计时。通关保存本地最佳成绩。
+## 游戏规则
 
-本页描述的是 **v0.1.0** 功能。点击目标格自动移动、Ctrl 多选同步移动将在 **v0.2.0** 中提供，**不包含在 v0.1.0** 中。
+- 棋盘为 **4 列 × 5 行**，包含 10 枚棋子与两个空位。
+- 曹操占 **2×2**，关羽占 **2×1**，四名竖将各占 **1×2**，四名小兵各占 **1×1**。
+- 棋子只能沿水平或垂直方向滑动；不可旋转、跨越、重叠或越界。
+- 将曹操移动到棋盘**底部中央出口**即可通关。
 
-## 下载与运行 / Download
+## 操作说明
 
-在 [Releases](https://github.com/OrangePerfume/SanGuoHuaRongDao/releases) 页面下载 `SanGuoHuaRongDao-v0.1.0-win-x64.zip`（需等 GitHub Actions 构建并发布成功后出现）。解压后运行：
+- **鼠标拖动**：按住一枚棋子沿水平或垂直方向拖动；路径必须逐格合法。
+- **键盘**：单击选中棋子后使用方向键或 WASD，每次移动一格。
+- **快捷键**：Ctrl+Z 撤销、R 重开、空格暂停 / 继续。
+- **计步与计时**：每枚棋子每移动一格记一步；第一次有效移动启动计时；完成后保存本地最佳成绩。
+- **点击移动**：单击棋子，再点击可达的绿色目标空位，沿合法直线自动移动；成功后清除选中和目标提示。
+- **Ctrl 多选**：按住 Ctrl 依次点击棋子，多枚棋子可沿相同方向、相同距离一起移动；任一棋子碰撞或越界则不允许该次移动。
+- **完整目标提示**：曹操显示一个 2×2 正方形、横将一个 2×1 横长方形、竖将一个 1×2 竖长方形、小兵一个 1×1 正方形，不拆成小格。
+- **整组撤销**：多选的一次整体移动可一次撤销；步数仍按棋子数量 × 移动格数计算。
+
+- **玩法提示排版**：右侧提示区分组展示操作说明，自动换行；窗口较小时可在提示区内滚动查看全部内容。
+
+## 下载与运行
+
+从 [GitHub Releases](https://github.com/OrangePerfume/SanGuoHuaRongDao/releases) 下载与版本匹配的 `SanGuoHuaRongDao-v0.2.0-win-x64.zip`（仅在构建及发布成功后可用）。完整解压后运行：
 
 `SanGuoHuaRongDao/SanGuoHuaRongDao.exe`
 
-整个 `SanGuoHuaRongDao` 文件夹必须完整保留，不要单独取出 EXE。游戏本身无需联网。
+不要单独复制 EXE，需保留同目录的依赖文件。游戏运行无需联网。
 
-## Windows 源码运行 / Run from source
+## 源码运行 / Windows 构建
 
-建议安装 Python 3.12 x64：
+建议 Python 3.12 x64。在项目根目录运行：
 
 ```bat
 py -3.12 -m venv .venv
@@ -40,40 +50,24 @@ py -3.12 -m venv .venv
 .venv\Scripts\python main.py
 ```
 
-也可以双击 `build.cmd`，它会安装构建依赖、运行测试、然后生成目录式 Windows EXE：
+双击 `build.cmd` 可安装构建依赖、运行完整测试并生成 `dist\SanGuoHuaRongDao\SanGuoHuaRongDao.exe`。首次安装依赖需要联网。
 
-`dist\SanGuoHuaRongDao\SanGuoHuaRongDao.exe`
+## 项目结构与质量
 
-首次下载依赖需要联网；成品游戏运行不需要网络。
-
-## 代码结构 / Project structure
-
-| 路径 | 用途 |
+| 路径 | 功能 |
 | --- | --- |
-| `huarongdao/core.py` | 棋局状态、边界/碰撞规则、求解器 |
-| `huarongdao/model.py` | 撤销、计步、计时、游戏状态 |
-| `huarongdao/gui.py` | PySide6 / Qt 用户界面 |
-| `huarongdao/records.py` | 本地最佳成绩 |
-| `huarongdao/assets/` | 木质纹理、图标及角色立绘 |
-| `tests/` | 单元测试与 Qt 界面烟雾测试 |
-| `build.cmd` | Windows 本地构建 |
-| `.github/workflows/` | CI 测试、Tag 发布 Windows ZIP |
+| `huarongdao/core.py` | 棋局规则、碰撞检测、求解器 |
+| `huarongdao/model.py` | 游戏状态、撤销、计时、计步 |
+| `huarongdao/gui.py` | PySide6 / Qt 界面 |
+| `huarongdao/records.py` | 本地成绩记录 |
+| `huarongdao/assets/` | 人物插画、棋盘纹理和图标 |
+| `tests/` | 逻辑、资源、UI 烟雾测试及文档一致性测试 |
+| `.github/workflows/` | Windows CI 与标签发布 |
 
-## 测试及兼容性说明
+测试门禁：`python -m unittest discover -s tests -v`。CI 在 Windows 安装 Qt 后运行；仅通过无 Qt 环境的测试不等于完成实际 Windows GUI 验收。
 
-V0.1.0 在无 Qt 的环境中运行了 **17 项 pytest 测试（另有 12 项子测试）并通过**，Qt 图形烟雾测试因缺少 PySide6 跳过。游戏已获得首次 Windows 人工通关反馈，但自动构建、不同屏幕缩放比例的显示效果仍需要进一步验证。工作流上的成功表示构建与自动化测试通过，不等于全平台人工验收。
+## 开源许可与其他文档
 
-## 开源许可与素材 / License and assets
+项目许可见 [LICENSE](LICENSE)（MIT）；Qt/PySide6 及构建依赖的许可说明见 [第三方组件声明](THIRD_PARTY_NOTICES.md)。人物插画为 AI 辅助创作的项目素材，未使用影视或其他游戏的现成截图。
 
-项目代码及随项目提供、由本项目制作的图像素材按 [MIT 许可证](LICENSE) 发布（以相应权利依法能够授权的范围为限）。三国人物插画由 AI 辅助创作，**未使用影视作品或其他电子游戏的现成截图**；木纹与图标由脚本生成。依赖组件继续适用它们自己的开源许可证。
-
-- **PySide6 / Qt for Python**：官方提供 LGPLv3 / GPLv3 等许可选择；再分发打包 DLL 时请履行适用许可义务。
-- **PyInstaller**：作为构建工具使用，其许可例外允许发布采用其他许可的程序，但仍须遵守应用依赖的许可证。
-
-贡献与问题反馈可通过 GitHub Issues 提交。请附 Windows 版本、操作步骤、期望结果和实际结果，不要上传包含隐私信息的日志。
-
----
-
-## English summary
-
-**Three Kingdoms Klotski** is a fully offline sliding-block puzzle for Windows 10/11 featuring the classic 4×5 *Heng Dao Li Ma* layout, painted character tiles, and a wooden game board. Guide Cao Cao (the 2×2 block) to the bottom-center exit. Use drag-and-drop or arrow/WASD keys; undo, pause, move counting, timer, and local best-record tracking are included. This first GitHub release is **v0.1.0**, the initial feature release. Source code and project-created assets are offered under the MIT license subject to applicable rights; third-party Qt/PySide6 dependencies keep their own licenses. Character artwork was AI-assisted.
+[更新记录](CHANGELOG.md) · [贡献指南](CONTRIBUTING.md) · [第三方组件声明](THIRD_PARTY_NOTICES.md) · [发布列表](https://github.com/OrangePerfume/SanGuoHuaRongDao/releases)
