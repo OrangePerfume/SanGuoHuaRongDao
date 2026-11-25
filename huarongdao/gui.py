@@ -6,19 +6,20 @@ from pathlib import Path
 
 from PySide6.QtCore import (
     QEasingCurve, QPointF, QRectF, QSize, Qt, QTimer, QVariantAnimation, Signal,
-    QStandardPaths,
+    QSettings, QStandardPaths,
 )
 from PySide6.QtGui import (
     QBrush, QColor, QFont, QIcon, QKeySequence, QLinearGradient,
     QPainter, QPainterPath, QPen, QPixmap, QShortcut,
 )
 from PySide6.QtWidgets import (
-    QApplication, QFrame, QHBoxLayout, QLabel, QMainWindow, QMessageBox,
+    QApplication, QComboBox, QFrame, QHBoxLayout, QLabel, QMainWindow, QMessageBox,
     QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
 )
 
 from .core import BOARD_W, PIECES, destination_footprints, occupied_by, shifted_group, target_for_click
 from .model import GameModel
+from .motion import ANIMATION_DURATIONS_MS, MotionTrack
 from .records import RecordStore
 
 ASSETS = Path(__file__).resolve().parent / "assets"
@@ -85,10 +86,14 @@ class BoardWidget(QWidget):
         self._pressed_pos: QPointF | None = None
         self._pressed_index: int | None = None
         self._preview: dict[int, int] | None = None
-        self._anim_origins: dict[int, int] = {}
-        self._anim_t = 1.0
+        self._motion = MotionTrack()
+        self._speed = "normal"
         self._animation = QVariantAnimation(self)
-        self._animation.setDuration(145)
+        # Qt requires explicit interpolation endpoints; without them the
+        # valueChanged signal need not fire for the intended 0..1 transition.
+        self._animation.setStartValue(0.0)
+        self._animation.setEndValue(1.0)
+        self._animation.setDuration(ANIMATION_DURATIONS_MS[self._speed])
         self._animation.setEasingCurve(QEasingCurve.Type.OutCubic)
         self._animation.valueChanged.connect(self._frame)
         self._animation.finished.connect(self._end_animation)
@@ -132,28 +137,47 @@ class BoardWidget(QWidget):
         cy = math.floor((point.y() - y0) / unit)
         return occupied_by(self.game.positions, cx, cy)
 
+    @property
+    def animation_duration_ms(self) -> int:
+        return ANIMATION_DURATIONS_MS[self._speed]
+
+    def set_animation_speed(self, speed: str) -> None:
+        if speed not in ANIMATION_DURATIONS_MS:
+            raise ValueError(f"unsupported animation speed: {speed}")
+        # Changing preferences during motion must not cause an instantaneous
+        # progress jump.  The current frame is the new start of the animation.
+        moving = bool(self._motion.starts) and self._motion.progress < 1.0
+        if moving:
+            before = {i: self.game.positions[i] for i in self._motion.starts}
+            self._motion.retarget(before, self.game.positions)
+            self._animation.stop()
+        self._speed = speed
+        self._animation.setDuration(self.animation_duration_ms)
+        if moving and self._motion.starts:
+            self._animation.start()
+        self.update()
+
     def _frame(self, value: object) -> None:
-        self._anim_t = float(value)
+        self._motion.set_progress(float(value))
         self.update()
 
     def _end_animation(self) -> None:
-        self._anim_origins.clear()
-        self._anim_t = 1.0
+        self._motion.complete()
         self.update()
 
     def animate(self, index: int, original_pos: int) -> None:
         self.animate_group({index: original_pos})
 
     def animate_group(self, original_positions: dict[int, int]) -> None:
+        active = self._motion.retarget(original_positions, self.game.positions)
         self._animation.stop()
-        self._anim_origins = original_positions.copy()
-        self._anim_t = 0.0
-        self._animation.start()
+        if active:
+            self._animation.start()
+        self.update()
 
     def clear_animation(self) -> None:
         self._animation.stop()
-        self._anim_origins.clear()
-        self._anim_t = 1.0
+        self._motion.complete()
         self._pressed_index = None
         self._pressed_pos = None
         self._preview = None
@@ -284,15 +308,10 @@ class BoardWidget(QWidget):
         # 多选同步动画与多棋子预览；不改变逻辑状态。
         for i in range(len(PIECES)):
             rect = self._piece_rect(i)
-            if i in self._anim_origins:
-                old = list(self.game.positions)
-                old[i] = self._anim_origins[i]
-                old_rect = self._piece_rect(i, tuple(old))
-                rect = QRectF(
-                    old_rect.x() + (rect.x()-old_rect.x())*self._anim_t,
-                    old_rect.y() + (rect.y()-old_rect.y())*self._anim_t,
-                    rect.width(), rect.height(),
-                )
+            if i in self._motion.starts:
+                grid_x, grid_y = self._motion.displayed(i, self.game.positions)
+                rect = QRectF(x0 + grid_x * unit + 3, y0 + grid_y * unit + 3,
+                              PIECES[i].w * unit - 6, PIECES[i].h * unit - 6)
             if self._preview is not None and i in self._preview:
                 ghost = list(self.game.positions)
                 ghost[i] = self._preview[i]
@@ -515,7 +534,11 @@ class MainWindow(QMainWindow):
             writable = str(Path.home()/'.sanguo_huarongdao')
         self.records=RecordStore(Path(writable)/'best.json')
         self.best=self.records.load()
-        self.setWindowTitle('三国华容道 · 横刀立马  |  V0.2.0')
+        self.settings = QSettings('OrangePerfume', 'SanGuoHuaRongDao')
+        self.animation_speed = str(self.settings.value('game/animation_speed', 'normal'))
+        if self.animation_speed not in ANIMATION_DURATIONS_MS:
+            self.animation_speed = 'normal'
+        self.setWindowTitle('三国华容道 · 横刀立马  |  V0.3.0')
         self.setWindowIcon(QIcon(str(ASSETS/'icon.png')))
         self.setMinimumSize(990,700)
         self.resize(1170,840)
@@ -553,6 +576,7 @@ class MainWindow(QMainWindow):
         main=QHBoxLayout()
         main.setSpacing(17)
         self.board=BoardWidget(self.game)
+        self.board.set_animation_speed(self.animation_speed)
         self.board.move_requested.connect(self._make_move)
         self.board.group_move_requested.connect(self._make_group_move)
         self.board.selection_changed.connect(lambda name: self.selected_info.setText('当前选中：'+name))
@@ -628,6 +652,26 @@ class MainWindow(QMainWindow):
         self.reset_button.clicked.connect(self._restart)
         self.undo_button.clicked.connect(self._undo)
         self.pause_button.clicked.connect(self._pause)
+        speed_title = QLabel('棋子滑动速度')
+        speed_title.setFont(font(11, True))
+        speed_title.setStyleSheet('color:#62402B; background:transparent; padding-top:7px;')
+        side_layout.addWidget(speed_title)
+        self.speed_combo = QComboBox(side)
+        self.speed_combo.setObjectName('animationSpeed')
+        self.speed_combo.setFont(font(11))
+        for text, value in (('慢', 'slow'), ('标准', 'normal'), ('快', 'fast')):
+            self.speed_combo.addItem(text, value)
+        self.speed_combo.setCurrentIndex(self.speed_combo.findData(self.animation_speed))
+        self.speed_combo.setMinimumHeight(38)
+        self.speed_combo.setToolTip('调整棋子移动与撤销的滑动速度，设置自动保存。')
+        self.speed_combo.setStyleSheet("""
+            QComboBox {background:#F3DFC1; color:#54341E; border:1px solid #C59B6C;
+                       border-radius:7px; padding:6px 10px;}
+            QComboBox QAbstractItemView {background:#F3DFC1; color:#54341E;
+                                        selection-background-color:#C59B6C;}
+        """)
+        self.speed_combo.currentIndexChanged.connect(self._change_animation_speed)
+        side_layout.addWidget(self.speed_combo)
         self.selected_info=QLabel('当前选中：无')
         self.selected_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.selected_info.setWordWrap(True)
@@ -671,8 +715,10 @@ class MainWindow(QMainWindow):
             ('键盘操作', '方向键 / WASD 移动选中棋子。'),
             ('快捷键', 'Ctrl+Z 撤销 · Esc 取消选中\nR 重开 · 空格暂停/继续'),
             ('计步与撤销', '每枚棋子每移动一格记一步；整组移动可一次撤销。'),
+            ('滑动速度', '可选择慢、标准、快；移动和撤销均采用平滑动画。'),
         )
         self.help_labels = []
+        self.help_sections = {}
         for heading, explanation in help_entries:
             heading_label = QLabel(heading)
             heading_label.setFont(font(10, True))
@@ -688,6 +734,7 @@ class MainWindow(QMainWindow):
             help_layout.addWidget(description_label)
             help_layout.addSpacing(5)
             self.help_labels.append(description_label)
+            self.help_sections[heading] = description_label
         self.help_scroll.setWidget(help_content)
         side_layout.addWidget(self.help_scroll, 1)
         self.side_scroll.setWidget(side)
@@ -702,6 +749,16 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence('Ctrl+Z'),self,activated=self._undo)
         QShortcut(QKeySequence('R'),self,activated=self._restart)
         QShortcut(QKeySequence('Space'),self,activated=self._pause)
+        self.board.setFocus()
+
+    def _change_animation_speed(self, _index: int) -> None:
+        speed = self.speed_combo.currentData()
+        if speed not in ANIMATION_DURATIONS_MS:
+            return
+        self.animation_speed = speed
+        self.board.set_animation_speed(speed)
+        self.settings.setValue('game/animation_speed', speed)
+        self.settings.sync()
         self.board.setFocus()
 
     def _metric(self, caption: str, value: str) -> QLabel:
@@ -744,7 +801,7 @@ class MainWindow(QMainWindow):
             self.board.animate(index,old)
             self._update_stats()
             if self.game.finished:
-                QTimer.singleShot(210,self._win)
+                QTimer.singleShot(self.board.animation_duration_ms + 50, self._win)
 
     def _make_group_move(self, indices: tuple[int, ...], dx: int, dy: int, count: int) -> None:
         original = {i: self.game.positions[i] for i in indices}
@@ -754,7 +811,7 @@ class MainWindow(QMainWindow):
             self.board.animate_group(original)
             self._update_stats()
             if self.game.finished:
-                QTimer.singleShot(210, self._win)
+                QTimer.singleShot(self.board.animation_duration_ms + 50, self._win)
 
     def _win(self) -> None:
         if not self.game.finished:
@@ -773,9 +830,12 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self,'恭喜通关',text)
 
     def _undo(self) -> None:
+        before = self.game.positions
         if self.game.undo():
+            old_positions = {i: old for i, old in enumerate(before)
+                             if old != self.game.positions[i]}
             self.board.clear_selection()
-            self.board.clear_animation()
+            self.board.animate_group(old_positions)
             self._update_stats()
 
     def _restart(self) -> None:

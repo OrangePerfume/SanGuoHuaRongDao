@@ -2,6 +2,15 @@
 
 # Changelog
 
+## V0.3.0 — 2026-11-21
+
+- Improved fast consecutive moves: animations continue from the current on-screen position rather than restarting from an outdated cell.
+- Added smooth visual undo for single pieces and grouped moves, including during ongoing animations.
+- Added persistent Slow, Normal, and Fast animation speed choices in the right-hand panel.
+- Reported measured sizes of the EXE, application folder, and Windows release ZIP during local builds and GitHub Actions.
+- Improved automated GitHub Releases: preserve a downloadable Windows build artifact; update assets when the version Release already exists.
+- Added regression tests for animation continuity, undo, speed presets, and build-size measurement.
+
 ## V0.2.0 — 2026-11-20
 
 - Improved the right-side help panel with grouped instructions, automatic wrapping, and an independently scrollable area to prevent clipped text on smaller windows.
@@ -21,4 +30,3 @@
 - Started the timer on the first valid move, counted one step per piece per cell, and stored local best scores after a win.
 - Included rules, session, record, asset, and basic GUI tests, along with the Windows build script.
 
-> Windows EXE rendering and DPI behavior still require verification in a Windows environment.

@@ -1,12 +1,12 @@
 [简体中文](README.md) · [繁體中文](docs/zh-TW/README.md) · [English](docs/en/README.md)
 
-# 三国华容道 · 横刀立马（V0.2.0）
+# 三国华容道 · 横刀立马（V0.3.0）
 
 [![Windows CI](https://github.com/OrangePerfume/SanGuoHuaRongDao/actions/workflows/ci.yml/badge.svg)](https://github.com/OrangePerfume/SanGuoHuaRongDao/actions/workflows/ci.yml) [![MIT License](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
 一款面向 **Windows 10 / 11** 的完全离线单机华容道游戏：保留经典「横刀立马」玩法，采用彩色木质棋盘与三国人物插画。怀旧的是玩法，而不是黑白屏幕。
 
-**版本：0.2.0**。本版在 V0.1.0 基础上新增点击移动及同向多选。
+**版本：0.3.0**。优化连续移动与撤销动画，新增慢、标准、快三档速度设置，同时完善 Windows 自动发布流程。
 
 ![项目素材生成的静态预览，不是 Windows 实机截图](PREVIEW.png)
 
@@ -30,11 +30,13 @@
 - **完整目标提示**：曹操显示一个 2×2 正方形、横将一个 2×1 横长方形、竖将一个 1×2 竖长方形、小兵一个 1×1 正方形，不拆成小格。
 - **整组撤销**：多选的一次整体移动可一次撤销；步数仍按棋子数量 × 移动格数计算。
 
+- **棋子滑动动画**：快速连续操作时，从棋子当前显示位置接续滑动；撤销动作也平滑回退。
+- **滑动速度**：右侧操作区提供慢、标准、快三档，自动保存选择，下次启动继续生效。
 - **玩法提示排版**：右侧提示区分组展示操作说明，自动换行；窗口较小时可在提示区内滚动查看全部内容。
 
 ## 下载与运行
 
-从 [GitHub Releases](https://github.com/OrangePerfume/SanGuoHuaRongDao/releases) 下载与版本匹配的 `SanGuoHuaRongDao-v0.2.0-win-x64.zip`（仅在构建及发布成功后可用）。完整解压后运行：
+从 [GitHub Releases](https://github.com/OrangePerfume/SanGuoHuaRongDao/releases) 下载与版本匹配的 `SanGuoHuaRongDao-v0.3.0-win-x64.zip`（仅在构建及发布成功后可用）。完整解压后运行：
 
 `SanGuoHuaRongDao/SanGuoHuaRongDao.exe`
 
@@ -50,7 +52,7 @@ py -3.12 -m venv .venv
 .venv\Scripts\python main.py
 ```
 
-双击 `build.cmd` 可安装构建依赖、运行完整测试并生成 `dist\SanGuoHuaRongDao\SanGuoHuaRongDao.exe`。首次安装依赖需要联网。
+双击 `build.cmd` 可安装构建依赖、运行完整测试并生成 `dist\SanGuoHuaRongDao\SanGuoHuaRongDao.exe`。首次安装依赖需要联网。构建完成后自动显示 EXE 文件、完整发布目录的实测体积；自动发布流程还会统计 ZIP 大小。
 
 ## 项目结构与质量
 
@@ -64,7 +66,7 @@ py -3.12 -m venv .venv
 | `tests/` | 逻辑、资源、UI 烟雾测试及文档一致性测试 |
 | `.github/workflows/` | Windows CI 与标签发布 |
 
-测试门禁：`python -m unittest discover -s tests -v`。CI 在 Windows 安装 Qt 后运行；仅通过无 Qt 环境的测试不等于完成实际 Windows GUI 验收。
+严格测试门禁：`python -X faulthandler tools/run_tests.py --require-qt`。CI 在 Windows 安装 Qt 后运行；仅通过无 Qt 环境的测试不等于完成实际 Windows GUI 验收。
 
 ## 开源许可与其他文档
 

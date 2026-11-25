@@ -1,12 +1,12 @@
 [简体中文](../../README.md) · [繁體中文](../../docs/zh-TW/README.md) · [English](../../docs/en/README.md)
 
-# Three Kingdoms Klotski — Heng Dao Li Ma (V0.2.0)
+# Three Kingdoms Klotski — Heng Dao Li Ma (V0.3.0)
 
 [![Windows CI](https://github.com/OrangePerfume/SanGuoHuaRongDao/actions/workflows/ci.yml/badge.svg)](https://github.com/OrangePerfume/SanGuoHuaRongDao/actions/workflows/ci.yml) [![MIT License](https://img.shields.io/badge/license-MIT-yellow.svg)](../../LICENSE)
 
 A fully offline sliding-block puzzle for **Windows 10 / 11**, featuring the classic *Heng Dao Li Ma* layout, a richly colored wooden board, and Three Kingdoms character illustrations. It brings back the **gameplay**, not the monochrome display.
 
-**Version: 0.2.0.** This version builds on V0.1.0 with click-to-move and group movement.
+**Version: 0.3.0.** Improved animation continuity and smooth undo, added three speed presets, and enhanced Windows build and Release handling.
 
 ![Static preview assembled from project artwork, not a running Windows screenshot](../../PREVIEW.png)
 
@@ -30,11 +30,13 @@ A fully offline sliding-block puzzle for **Windows 10 / 11**, featuring the clas
 - **Full-shape destination hints**: Cao Cao has one 2×2 square hint; the horizontal general has a 2×1 rectangle; vertical generals have 1×2 rectangles; soldiers have 1×1 squares. Hints are not broken into per-cell boxes.
 - **Group undo**: One synchronized movement is undone as a single action; the step count remains the number of pieces times the number of cells moved.
 
+- **Smooth animation**: Rapid successive moves continue from each piece’s current displayed position; undo also animates back smoothly.
+- **Animation speed**: Choose Slow, Normal, or Fast in the right-hand control panel. The preference persists across launches.
 - **Help panel layout**: The right-side instructions are grouped and wrap automatically; scroll within the panel to read everything in a smaller window.
 
 ## Download and run
 
-Download the version-matched `SanGuoHuaRongDao-v0.2.0-win-x64.zip` from [GitHub Releases](https://github.com/OrangePerfume/SanGuoHuaRongDao/releases) (available only after a successful build and publication). Extract the entire ZIP, then run:
+Download the version-matched `SanGuoHuaRongDao-v0.3.0-win-x64.zip` from [GitHub Releases](https://github.com/OrangePerfume/SanGuoHuaRongDao/releases) (available only after a successful build and publication). Extract the entire ZIP, then run:
 
 `SanGuoHuaRongDao/SanGuoHuaRongDao.exe`
 
@@ -50,7 +52,7 @@ py -3.12 -m venv .venv
 .venv\Scripts\python main.py
 ```
 
-Run `build.cmd` from the repository root to install build dependencies, execute the tests, and produce `dist\SanGuoHuaRongDao\SanGuoHuaRongDao.exe`. Installing dependencies for the first time requires network access.
+Run `build.cmd` from the repository root to install build dependencies, execute the tests, and produce `dist\SanGuoHuaRongDao\SanGuoHuaRongDao.exe`. Installing dependencies for the first time requires network access. The build reports measured sizes for the EXE and full distribution folder; the release workflow also measures the ZIP archive.
 
 ## Project layout and verification
 
@@ -64,7 +66,7 @@ Run `build.cmd` from the repository root to install build dependencies, execute 
 | `tests/` | Rules, assets, GUI smoke tests, and documentation checks |
 | `.github/workflows/` | Windows CI and tag-triggered releases |
 
-Test command: `python -m unittest discover -s tests -v`. CI installs Qt and runs on Windows. Passing non-Qt tests alone does not constitute a completed Windows GUI verification.
+Strict test command: `python -X faulthandler tools/run_tests.py --require-qt`. CI installs Qt and runs on Windows. Passing non-Qt tests alone does not constitute a completed Windows GUI verification.
 
 ## License and more information
 

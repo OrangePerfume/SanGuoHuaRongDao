@@ -43,8 +43,13 @@ class HelpLayoutQtTests(unittest.TestCase):
                     self.assertGreater(scroll.viewport().width(), 100)
                     self.assertGreater(scroll.viewport().height(), 65)
                     self.assertEqual(scroll.horizontalScrollBar().maximum(), 0)
-                    self.assertEqual(len(win.help_labels), 6)
+                    # New help sections should not invalidate geometry checks.
+                    # Every visible section has exactly one wrapped description.
+                    self.assertEqual(len(win.help_labels), len(win.help_sections))
+                    self.assertGreaterEqual(len(win.help_sections), 7)
+                    self.assertEqual(len({id(label) for label in win.help_sections.values()}), len(win.help_labels))
                     self.assertTrue(all(label.wordWrap() for label in win.help_labels))
+                    self.assertTrue(all(label.text().strip() for label in win.help_labels))
                     # If the text doesn't fit vertically, Qt must expose a scroll range.
                     last = win.help_labels[-1]
                     visible_bottom = last.mapTo(scroll.viewport(), last.rect().bottomLeft()).y()
@@ -68,7 +73,23 @@ class HelpLayoutQtTests(unittest.TestCase):
             footer = next(label for label in win.findChildren(QLabel)
                           if label.text().startswith('提示：绿色轮廓'))
             self.assertTrue(footer.wordWrap())
-            self.assertIn('整组移动可一次撤销', win.help_labels[-1].text())
+            # Check explanations by their meaning rather than their ordinal
+            # position: a new section may appear after step/undo guidance.
+            required = {
+                '点击 / 拖动': '绿色目标位置',
+                '多人同向移动': 'Ctrl+点击',
+                '绿色提示': '整块棋子占位',
+                '键盘操作': 'WASD',
+                '快捷键': 'Ctrl+Z',
+                '计步与撤销': '整组移动可一次撤销',
+                '滑动速度': '移动和撤销均采用平滑动画',
+            }
+            for heading, phrase in required.items():
+                with self.subTest(section=heading):
+                    self.assertIn(heading, win.help_sections)
+                    label = win.help_sections[heading]
+                    self.assertIn(phrase, label.text())
+                    self.assertTrue(label.wordWrap())
             win.resize(1170,840)
             self.app.processEvents()
             self.assertTrue(all(label.isVisible() for label in win.help_labels))
