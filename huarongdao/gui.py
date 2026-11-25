@@ -718,6 +718,7 @@ class MainWindow(QMainWindow):
             ('滑动速度', '可选择慢、标准、快；移动和撤销均采用平滑动画。'),
         )
         self.help_labels = []
+        self.help_sections = {}
         for heading, explanation in help_entries:
             heading_label = QLabel(heading)
             heading_label.setFont(font(10, True))
@@ -733,6 +734,7 @@ class MainWindow(QMainWindow):
             help_layout.addWidget(description_label)
             help_layout.addSpacing(5)
             self.help_labels.append(description_label)
+            self.help_sections[heading] = description_label
         self.help_scroll.setWidget(help_content)
         side_layout.addWidget(self.help_scroll, 1)
         self.side_scroll.setWidget(side)
