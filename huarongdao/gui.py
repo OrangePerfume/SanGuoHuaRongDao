@@ -6,21 +6,22 @@ from pathlib import Path
 
 from PySide6.QtCore import (
     QEasingCurve, QPointF, QRectF, QSize, Qt, QTimer, QVariantAnimation, Signal,
-    QSettings, QStandardPaths,
+    QSettings, QSignalBlocker, QStandardPaths,
 )
 from PySide6.QtGui import (
     QBrush, QColor, QFont, QIcon, QKeySequence, QLinearGradient,
-    QPainter, QPainterPath, QPen, QPixmap, QShortcut,
+    QAction, QActionGroup, QPainter, QPainterPath, QPen, QPixmap, QShortcut,
 )
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QFrame, QHBoxLayout, QLabel, QMainWindow, QMessageBox,
-    QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
+    QMenu, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
 )
 
-from .core import BOARD_W, PIECES, destination_footprints, occupied_by, shifted_group, target_for_click
+from .core import BOARD_W, PIECES, display_hint_rectangles, occupied_by, shifted_group, target_for_click
 from .model import GameModel
 from .motion import ANIMATION_DURATIONS_MS, MotionTrack
 from .records import RecordStore
+from .i18n import LANGUAGES, HELP_IDS, DEFAULT_LANGUAGE, normalize_language, piece_name, selected_names, tr
 
 ASSETS = Path(__file__).resolve().parent / "assets"
 PORTRAITS = [
@@ -73,6 +74,7 @@ class BoardWidget(QWidget):
     def __init__(self, game: GameModel, parent: QWidget | None = None):
         super().__init__(parent)
         self.game = game
+        self.language = DEFAULT_LANGUAGE
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMouseTracking(True)
         self.setMinimumSize(500, 600)
@@ -118,17 +120,16 @@ class BoardWidget(QWidget):
                       piece.w * unit - 6, piece.h * unit - 6)
 
     def _hint_rects(self) -> tuple[QRectF, ...]:
-        """每个合法终点画完整棋子外框，按棋子形状计算，而非逐格高亮。"""
+        """同方向重叠终点合并为连续矩形，不重复描边或填充。"""
         if not self._selected or not self._targets_visible or self.game.paused or self.game.finished:
             return ()
         x0, y0, unit = self._layout()
         return tuple(
             QRectF(x0 + cx * unit + 7, y0 + cy * unit + 7,
                    width * unit - 14, height * unit - 14)
-            for _destination, footprints in destination_footprints(
+            for cx, cy, width, height in display_hint_rectangles(
                 self.game.positions, tuple(sorted(self._selected))
             )
-            for _index, cx, cy, width, height in footprints
         )
 
     def _at(self, point: QPointF) -> int | None:
@@ -192,15 +193,15 @@ class BoardWidget(QWidget):
         self._targets_visible = False
         self.update()
 
+    def set_language(self, language: str) -> None:
+        self.language = normalize_language(language)
+        # A language change must not reopen hints hidden by keyboard movement.
+        self.selection_changed.emit(selected_names(self.language, tuple(sorted(self._selected))))
+        self.update()
+
     def _emit_selection(self) -> None:
         self._targets_visible = bool(self._selected)
-        names = [PIECES[i].name if i < 6 else '小兵' for i in sorted(self._selected)]
-        if not names:
-            self.selection_changed.emit('无')
-        elif len(names) == 1:
-            self.selection_changed.emit(names[0])
-        else:
-            self.selection_changed.emit(f'{len(names)} 枚 · ' + '、'.join(names))
+        self.selection_changed.emit(selected_names(self.language, tuple(sorted(self._selected))))
         self.update()
 
     def _request_move(self, dx: int, dy: int, count: int) -> None:
@@ -244,8 +245,13 @@ class BoardWidget(QWidget):
         label_size = 11 if PIECES[i].w == 1 else 16
         if PIECES[i].w == 1 and PIECES[i].h == 1:
             label_size = 12
+        name = piece_name(self.language, i, tile=True)
         painter.setFont(font(label_size, True))
-        name = "兵" if i >= 6 else PIECES[i].name
+        # English labels may be longer than CJK names. Fit the wooden nameplate
+        # rather than clipping a general's name or creating a second text row.
+        while painter.fontMetrics().horizontalAdvance(name) > tag.width() - 7 and label_size > 8:
+            label_size -= 1
+            painter.setFont(font(label_size, True))
         painter.drawText(tag, Qt.AlignmentFlag.AlignCenter, name)
         painter.setClipping(False)
         # 细致的金属内框（选中时发亮）
@@ -296,7 +302,7 @@ class BoardWidget(QWidget):
         title_rect = QRectF(x0, max(8,y0-66), unit*4, 31)
         painter.setPen(c("#F1D7A3"))
         painter.setFont(font(15,True))
-        painter.drawText(title_rect, Qt.AlignmentFlag.AlignCenter, "—  横 刀 立 马  —")
+        painter.drawText(title_rect, Qt.AlignmentFlag.AlignCenter, tr(self.language, "board_title"))
         # 底部出口：两格宽位置
         exit_rect = QRectF(x0+unit, y0+5*unit+12, 2*unit, 27)
         painter.setBrush(c("#D4A15C"))
@@ -304,7 +310,7 @@ class BoardWidget(QWidget):
         painter.drawRoundedRect(exit_rect,5,5)
         painter.setPen(c("#512A17"))
         painter.setFont(font(12,True))
-        painter.drawText(exit_rect, Qt.AlignmentFlag.AlignCenter, "▼  华 容 道 出 口  ▼")
+        painter.drawText(exit_rect, Qt.AlignmentFlag.AlignCenter, tr(self.language, "board_exit"))
         # 多选同步动画与多棋子预览；不改变逻辑状态。
         for i in range(len(PIECES)):
             rect = self._piece_rect(i)
@@ -320,9 +326,7 @@ class BoardWidget(QWidget):
                 painter.setOpacity(1.0)
                 rect = self._piece_rect(i, tuple(ghost))
             self._draw_piece(painter, i, rect, i in self._selected)
-        # 移动提示按「整块棋子在目标位置的占地矩形」绘制。
-        # 绘制在棋子之上，含与原位置重合的区域，确保 1×2 / 2×1 / 2×2
-        # 分别是一整个长方形 / 大正方形，而不是数个互不相连的 1×1 色块。
+        # 同方向重叠落点先合并，再统一填充和描边，避免中间颜色加深。
         for hint in self._hint_rects():
             painter.setBrush(c('#8CC786', 65))
             painter.setPen(QPen(c('#D8F0B4', 215), 2.2))
@@ -331,7 +335,7 @@ class BoardWidget(QWidget):
             painter.fillRect(board_rect,c("#120B08",188))
             painter.setPen(c("#F2D6A0"))
             painter.setFont(font(28,True))
-            painter.drawText(board_rect, Qt.AlignmentFlag.AlignCenter, "已暂停")
+            painter.drawText(board_rect, Qt.AlignmentFlag.AlignCenter, tr(self.language, "board_pause"))
         if self.game.finished:
             painter.setBrush(c("#1A3929",228))
             plaque=QRectF(x0+unit*.35,y0+unit*2.15,unit*3.3,unit*.75)
@@ -339,7 +343,8 @@ class BoardWidget(QWidget):
             painter.drawRoundedRect(plaque,12,12)
             painter.setPen(c("#FFE9B6"))
             painter.setFont(font(20,True))
-            painter.drawText(plaque, Qt.AlignmentFlag.AlignCenter, "曹操脱困 · 恭喜通关")
+            painter.setFont(font(14 if self.language == 'en' else 20, True))
+            painter.drawText(plaque, Qt.AlignmentFlag.AlignCenter, tr(self.language, "board_win"))
         painter.end()
 
     def _drag_direction(self, delta: QPointF) -> tuple[int,int,int] | None:
@@ -535,10 +540,11 @@ class MainWindow(QMainWindow):
         self.records=RecordStore(Path(writable)/'best.json')
         self.best=self.records.load()
         self.settings = QSettings('OrangePerfume', 'SanGuoHuaRongDao')
+        self.language = normalize_language(self.settings.value('ui/language', DEFAULT_LANGUAGE))
         self.animation_speed = str(self.settings.value('game/animation_speed', 'normal'))
         if self.animation_speed not in ANIMATION_DURATIONS_MS:
             self.animation_speed = 'normal'
-        self.setWindowTitle('三国华容道 · 横刀立马  |  V0.3.0')
+        self.setWindowTitle(tr(self.language, 'window_title'))
         self.setWindowIcon(QIcon(str(ASSETS/'icon.png')))
         self.setMinimumSize(990,700)
         self.resize(1170,840)
@@ -558,20 +564,55 @@ class MainWindow(QMainWindow):
         titlebar=QHBoxLayout()
         titles=QVBoxLayout()
         titles.setSpacing(0)
-        title=QLabel('三 国 华 容 道')
+        title=QLabel(tr(self.language, 'main_title'))
+        self.title_label = title
         title.setFont(font(29,True))
         title.setStyleSheet('color:#F6D9A2;')
-        subtitle=QLabel('经典棋局 · 横刀立马     |     一局不急，步步有谋')
+        subtitle=QLabel(tr(self.language, 'subtitle'))
+        self.subtitle_label = subtitle
         subtitle.setFont(font(11))
         subtitle.setStyleSheet('color:#D3AE7D; padding-top:2px;')
         titles.addWidget(title)
         titles.addWidget(subtitle)
-        titlebar.addLayout(titles)
-        titlebar.addStretch()
-        edition=QLabel('原创国风人物棋子  ·  离线单机')
+        titlebar.addLayout(titles, 1)
+        edition=QLabel(tr(self.language, 'edition'))
+        self.edition_label = edition
+        edition.setWordWrap(True)
         edition.setFont(font(11,True))
         edition.setStyleSheet('color:#E7C999; background:#50301D; border:1px solid #9E7147; border-radius:11px; padding:10px 14px;')
         titlebar.addWidget(edition)
+        self.language_button = QPushButton(root)
+        self.language_button.setObjectName('languageButton')
+        self.language_button.setMinimumHeight(38)
+        self.language_button.setMinimumWidth(164)
+        self.language_button.setFont(font(10, True))
+        self.language_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.language_button.setStyleSheet("""
+            QPushButton { color:#F7DEAF; background:#50301D; border:1px solid #C69A62;
+                          border-radius:8px; padding:7px 10px; }
+            QPushButton:hover { background:#755030; border-color:#F0D293; }
+            QPushButton::menu-indicator { image:none; }
+        """)
+        self.language_menu = QMenu(self.language_button)
+        self.language_menu.setObjectName('languageMenu')
+        self.language_menu.setStyleSheet("""
+            QMenu { background:#F5E4C6; color:#54341E; border:1px solid #A77B4A; }
+            QMenu::item { padding:8px 22px; }
+            QMenu::item:selected { background:#D8B786; }
+            QMenu::item:checked { font-weight:bold; }
+        """)
+        self.language_group = QActionGroup(self.language_menu)
+        self.language_group.setExclusive(True)
+        self.language_actions = {}
+        for locale, visible_name in LANGUAGES:
+            action = QAction(visible_name, self.language_menu)
+            action.setCheckable(True)
+            action.triggered.connect(lambda checked=False, chosen=locale: self.set_language(chosen))
+            self.language_group.addAction(action)
+            self.language_menu.addAction(action)
+            self.language_actions[locale] = action
+        self.language_button.setMenu(self.language_menu)
+        titlebar.addWidget(self.language_button)
         page.addLayout(titlebar)
         main=QHBoxLayout()
         main.setSpacing(17)
@@ -579,7 +620,7 @@ class MainWindow(QMainWindow):
         self.board.set_animation_speed(self.animation_speed)
         self.board.move_requested.connect(self._make_move)
         self.board.group_move_requested.connect(self._make_group_move)
-        self.board.selection_changed.connect(lambda name: self.selected_info.setText('当前选中：'+name))
+        self.board.selection_changed.connect(self._on_selection_changed)
         main.addWidget(self.board,5)
         side=ParchmentPanel()
         # 外层侧栏可滚动：极小窗口/高 DPI 下即便控制区本身变高，
@@ -604,12 +645,14 @@ class MainWindow(QMainWindow):
         side_layout=QVBoxLayout(side)
         side_layout.setContentsMargins(27,24,27,22)
         side_layout.setSpacing(12)
-        header=QLabel('横 刀 立 马')
+        header=QLabel(tr(self.language, 'chapter_title'))
+        self.chapter_header = header
         header.setAlignment(Qt.AlignmentFlag.AlignCenter)
         header.setFont(font(24,True))
         header.setStyleSheet('color:#532C1C; background:transparent;')
         side_layout.addWidget(header)
-        tagline=QLabel('壹 · 经典篇')
+        tagline=QLabel(tr(self.language, 'chapter_subtitle'))
+        self.tagline_label = tagline
         tagline.setAlignment(Qt.AlignmentFlag.AlignCenter)
         tagline.setFont(font(11,True))
         tagline.setStyleSheet('color:#885B3F; background:transparent;')
@@ -618,19 +661,21 @@ class MainWindow(QMainWindow):
         line.setFrameShape(QFrame.Shape.HLine)
         line.setStyleSheet('color:#B89360; background:#B89360;')
         side_layout.addWidget(line)
-        info=QLabel('调动众将，助曹操从棋盘底部中央的出口脱困。')
+        info=QLabel(tr(self.language, 'description'))
+        self.intro_label = info
         info.setWordWrap(True)
         info.setFont(font(12))
         info.setStyleSheet('color:#5C3927; background:transparent; line-height:1.5;')
         side_layout.addWidget(info)
-        progress=QLabel('棋 局 进 度')
+        progress=QLabel(tr(self.language, 'progress'))
+        self.progress_title_label = progress
         progress.setFont(font(13,True))
         progress.setStyleSheet('color:#62402B; background:transparent; padding-top:7px;')
         side_layout.addWidget(progress)
         metrics=QHBoxLayout()
         metrics.setSpacing(12)
-        self.steps_label=self._metric('移动步数','0')
-        self.time_label=self._metric('游戏用时','00:00')
+        self.steps_label=self._metric(tr(self.language, 'moves'),'0')
+        self.time_label=self._metric(tr(self.language, 'time'),'00:00')
         metrics.addWidget(self.steps_label.parentWidget())
         metrics.addWidget(self.time_label.parentWidget())
         side_layout.addLayout(metrics)
@@ -640,30 +685,32 @@ class MainWindow(QMainWindow):
         self.best_label.setFont(font(10,True))
         self.best_label.setStyleSheet('color:#775136; background:transparent;')
         side_layout.addWidget(self.best_label)
-        controls=QLabel('操 作 区')
+        controls=QLabel(tr(self.language, 'controls'))
+        self.controls_label = controls
         controls.setFont(font(13,True))
         controls.setStyleSheet('color:#62402B; background:transparent; padding-top:9px;')
         side_layout.addWidget(controls)
-        self.reset_button=dark_button('重新开始','#396751',side,'restart')
-        self.undo_button=dark_button('撤销上一步','#365D7B',side,'undo')
-        self.pause_button=dark_button('暂停游戏','#654D6B',side,'pause')
+        self.reset_button=dark_button(tr(self.language, 'restart'),'#396751',side,'restart')
+        self.undo_button=dark_button(tr(self.language, 'undo'),'#365D7B',side,'undo')
+        self.pause_button=dark_button(tr(self.language, 'pause'),'#654D6B',side,'pause')
         for button in (self.reset_button,self.undo_button,self.pause_button):
             side_layout.addWidget(button)
         self.reset_button.clicked.connect(self._restart)
         self.undo_button.clicked.connect(self._undo)
         self.pause_button.clicked.connect(self._pause)
-        speed_title = QLabel('棋子滑动速度')
+        speed_title = QLabel(tr(self.language, 'speed_heading'))
+        self.speed_title_label = speed_title
         speed_title.setFont(font(11, True))
         speed_title.setStyleSheet('color:#62402B; background:transparent; padding-top:7px;')
         side_layout.addWidget(speed_title)
         self.speed_combo = QComboBox(side)
         self.speed_combo.setObjectName('animationSpeed')
         self.speed_combo.setFont(font(11))
-        for text, value in (('慢', 'slow'), ('标准', 'normal'), ('快', 'fast')):
-            self.speed_combo.addItem(text, value)
+        for value in ('slow', 'normal', 'fast'):
+            self.speed_combo.addItem(tr(self.language, 'speed_' + value), value)
         self.speed_combo.setCurrentIndex(self.speed_combo.findData(self.animation_speed))
         self.speed_combo.setMinimumHeight(38)
-        self.speed_combo.setToolTip('调整棋子移动与撤销的滑动速度，设置自动保存。')
+        self.speed_combo.setToolTip(tr(self.language, 'speed_tooltip'))
         self.speed_combo.setStyleSheet("""
             QComboBox {background:#F3DFC1; color:#54341E; border:1px solid #C59B6C;
                        border-radius:7px; padding:6px 10px;}
@@ -672,7 +719,7 @@ class MainWindow(QMainWindow):
         """)
         self.speed_combo.currentIndexChanged.connect(self._change_animation_speed)
         side_layout.addWidget(self.speed_combo)
-        self.selected_info=QLabel('当前选中：无')
+        self.selected_info=QLabel(tr(self.language, 'selection_prefix', names=tr(self.language, 'selection_none')))
         self.selected_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.selected_info.setWordWrap(True)
         self.selected_info.setFont(font(11))
@@ -703,28 +750,21 @@ class MainWindow(QMainWindow):
         help_layout = QVBoxLayout(help_content)
         help_layout.setContentsMargins(13,11,13,12)
         help_layout.setSpacing(4)
-        help_heading = QLabel('玩 法 提 示')
+        help_heading = QLabel(tr(self.language, 'help_title'))
+        self.help_heading_label = help_heading
         help_heading.setFont(font(12,True))
         help_heading.setStyleSheet('color:#593A27; background:transparent;')
         help_layout.addWidget(help_heading)
         # 使用短句和分组说明；布局负责换行，长文字可向下滚动查看。
-        help_entries = (
-            ('点击 / 拖动', '选中人物后点击绿色目标位置，或按住棋子拖动。'),
-            ('多人同向移动', 'Ctrl+点击多枚棋子，再同向拖动或点击目标位置。'),
-            ('绿色提示', '按整块棋子占位显示；移动成功后自动清除。'),
-            ('键盘操作', '方向键 / WASD 移动选中棋子。'),
-            ('快捷键', 'Ctrl+Z 撤销 · Esc 取消选中\nR 重开 · 空格暂停/继续'),
-            ('计步与撤销', '每枚棋子每移动一格记一步；整组移动可一次撤销。'),
-            ('滑动速度', '可选择慢、标准、快；移动和撤销均采用平滑动画。'),
-        )
         self.help_labels = []
+        self.help_titles = []
         self.help_sections = {}
-        for heading, explanation in help_entries:
-            heading_label = QLabel(heading)
+        for section_id in HELP_IDS:
+            heading_label = QLabel(tr(self.language, f'help.{section_id}.title'))
             heading_label.setFont(font(10, True))
             heading_label.setStyleSheet('color:#68452F; background:transparent;')
             help_layout.addWidget(heading_label)
-            description_label = QLabel(explanation)
+            description_label = QLabel(tr(self.language, f'help.{section_id}.body'))
             description_label.setWordWrap(True)
             description_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
             description_label.setFont(font(10))
@@ -734,13 +774,15 @@ class MainWindow(QMainWindow):
             help_layout.addWidget(description_label)
             help_layout.addSpacing(5)
             self.help_labels.append(description_label)
-            self.help_sections[heading] = description_label
+            self.help_titles.append(heading_label)
+        self._index_help_sections()
         self.help_scroll.setWidget(help_content)
         side_layout.addWidget(self.help_scroll, 1)
         self.side_scroll.setWidget(side)
         main.addWidget(self.side_scroll,3)
         page.addLayout(main,1)
-        foot=QLabel('提示：绿色轮廓表示整块棋子的合法目标位置；点未被棋子占用的绿色区域即可移动。Ctrl+点击可多选。')
+        foot=QLabel(tr(self.language, 'footer'))
+        self.footer_label = foot
         foot.setFont(font(10))
         foot.setWordWrap(True)
         foot.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
@@ -749,7 +791,62 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence('Ctrl+Z'),self,activated=self._undo)
         QShortcut(QKeySequence('R'),self,activated=self._restart)
         QShortcut(QKeySequence('Space'),self,activated=self._pause)
+        self._apply_language()
         self.board.setFocus()
+
+    def _index_help_sections(self) -> None:
+        """Keep the indexed help descriptions consistent with the active locale."""
+        self.help_sections = {
+            tr(self.language, f'help.{section_id}.title'): self.help_labels[i]
+            for i, section_id in enumerate(HELP_IDS)
+        }
+
+    def _on_selection_changed(self, names: str) -> None:
+        self.selected_info.setText(tr(self.language, 'selection_prefix', names=names))
+
+    def set_language(self, language: str, persist: bool = True) -> None:
+        """Translate all UI surfaces in place without resetting the game or timers."""
+        self.language = normalize_language(language)
+        self._apply_language()
+        if persist:
+            self.settings.setValue('ui/language', self.language)
+            self.settings.sync()
+        self.board.setFocus()
+
+    def _apply_language(self) -> None:
+        language = self.language
+        t = lambda key, **kwargs: tr(language, key, **kwargs)
+        self.setWindowTitle(t('window_title'))
+        self.title_label.setText(t('main_title'))
+        self.title_label.setFont(font(23 if language == 'en' else 29, True))
+        self.subtitle_label.setText(t('subtitle'))
+        self.edition_label.setText(t('edition'))
+        self.language_button.setText(t('language_button'))
+        self.language_button.setToolTip(t('language_tooltip'))
+        self.language_actions[language].setChecked(True)
+        self.chapter_header.setText(t('chapter_title'))
+        self.chapter_header.setFont(font(18 if language == 'en' else 24, True))
+        self.tagline_label.setText(t('chapter_subtitle'))
+        self.intro_label.setText(t('description'))
+        self.progress_title_label.setText(t('progress'))
+        self.steps_caption.setText(t('moves'))
+        self.time_caption.setText(t('time'))
+        self.controls_label.setText(t('controls'))
+        self.reset_button.setText(t('restart'))
+        self.undo_button.setText(t('undo'))
+        self.speed_title_label.setText(t('speed_heading'))
+        self.speed_combo.setToolTip(t('speed_tooltip'))
+        with QSignalBlocker(self.speed_combo):
+            for i in range(self.speed_combo.count()):
+                self.speed_combo.setItemText(i, t('speed_' + self.speed_combo.itemData(i)))
+        self.help_heading_label.setText(t('help_title'))
+        for i, section_id in enumerate(HELP_IDS):
+            self.help_titles[i].setText(t(f'help.{section_id}.title'))
+            self.help_labels[i].setText(t(f'help.{section_id}.body'))
+        self._index_help_sections()
+        self.footer_label.setText(t('footer'))
+        self.board.set_language(language)
+        self._update_stats()
 
     def _change_animation_speed(self, _index: int) -> None:
         speed = self.speed_combo.currentData()
@@ -768,6 +865,11 @@ class MainWindow(QMainWindow):
         v.setContentsMargins(7,8,7,9)
         v.setSpacing(3)
         name=QLabel(caption)
+        name.setObjectName('metricCaption')
+        if caption == tr(self.language, 'moves'):
+            self.steps_caption = name
+        else:
+            self.time_caption = name
         name.setAlignment(Qt.AlignmentFlag.AlignCenter)
         name.setFont(font(10,True))
         name.setStyleSheet('color:#755239;')
@@ -784,12 +886,13 @@ class MainWindow(QMainWindow):
         elapsed=int(self.game.elapsed)
         self.time_label.setText(f'{elapsed//60:02}:{elapsed%60:02}')
         self.undo_button.setEnabled(bool(self.game.history) and not self.game.paused)
-        self.pause_button.setText('继续游戏' if self.game.paused else '暂停游戏')
+        self.pause_button.setText(tr(self.language, 'resume' if self.game.paused else 'pause'))
         self.pause_button.setIcon(QIcon(str(ASSETS / ('icon_play.png' if self.game.paused else 'icon_pause.png'))))
         self.pause_button.setEnabled(self.game.running or self.game.paused)
         self.best_label.setText(
-            f'最佳纪录：{self.best["steps"]} 步 · {self.best["seconds"]//60:02}:{self.best["seconds"]%60:02}'
-            if self.best else '最佳纪录：尚未通关'
+            tr(self.language, 'best', steps=self.best['steps'],
+               time=f"{self.best['seconds']//60:02}:{self.best['seconds']%60:02}")
+            if self.best else tr(self.language, 'best_none')
         )
         self.board.update()
 
@@ -824,10 +927,17 @@ class MainWindow(QMainWindow):
         except OSError:
             score_saved=False
         self._update_stats()
-        text=f'曹操已成功到达出口！\n\n本局走了 {self.game.steps} 步，用时 {seconds//60:02}:{seconds%60:02}。'
+        message = tr(self.language, 'win_message', steps=self.game.steps,
+                     time=f'{seconds//60:02}:{seconds%60:02}')
         if not score_saved:
-            text+='\n\n注意：本地成绩保存失败，请检查用户数据目录权限。'
-        QMessageBox.information(self,'恭喜通关',text)
+            message += '\n\n' + tr(self.language, 'win_save_error')
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle(tr(self.language, 'win_title'))
+        dialog.setIcon(QMessageBox.Icon.Information)
+        dialog.setText(message)
+        dialog.setStandardButtons(QMessageBox.StandardButton.Ok)
+        dialog.button(QMessageBox.StandardButton.Ok).setText(tr(self.language, 'dialog_ok'))
+        dialog.exec()
 
     def _undo(self) -> None:
         before = self.game.positions
@@ -840,14 +950,21 @@ class MainWindow(QMainWindow):
 
     def _restart(self) -> None:
         if self.game.steps:
-            if QMessageBox.question(self,'重新开始','确定要放弃当前棋局并重新开始吗？',
-                                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                    QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+            dialog = QMessageBox(self)
+            dialog.setWindowTitle(tr(self.language, 'restart_title'))
+            dialog.setIcon(QMessageBox.Icon.Question)
+            dialog.setText(tr(self.language, 'restart_confirm'))
+            dialog.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            dialog.setDefaultButton(QMessageBox.StandardButton.No)
+            dialog.button(QMessageBox.StandardButton.Yes).setText(tr(self.language, 'confirm_yes'))
+            dialog.button(QMessageBox.StandardButton.No).setText(tr(self.language, 'confirm_no'))
+            if dialog.exec() != QMessageBox.StandardButton.Yes:
                 return
         self.game.reset()
         self.board.clear_selection()
         self.board.clear_animation()
-        self.selected_info.setText('当前选中：无')
+        self.selected_info.setText(tr(self.language, 'selection_prefix',
+                                      names=tr(self.language, 'selection_none')))
         self._update_stats()
         self.board.setFocus()
 

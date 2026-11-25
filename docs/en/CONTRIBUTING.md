@@ -22,4 +22,8 @@ py -3.12 -m venv .venv
 - Do not commit `dist/`, `build/`, `.venv/`, private logs, credentials, or assets without redistribution rights.
 - Run GUI tests with PySide6 installed on Windows. Passing pure-Python tests is not the same as Windows EXE acceptance testing.
 
+## UI translations
+
+- When editing in-game text, update all three dictionaries in `huarongdao/i18n.py` and check the interface after switching languages.
+
 See [LICENSE](../../LICENSE) and [Third-party notices](THIRD_PARTY_NOTICES.md).

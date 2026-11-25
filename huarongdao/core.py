@@ -184,6 +184,27 @@ def destination_footprints(positions: tuple[int, ...],
     )
 
 
+def display_hint_rectangles(positions: tuple[int, ...], indices: tuple[int, ...]
+                            ) -> tuple[tuple[int, int, int, int], ...]:
+    """Merge overlapping destinations of one piece in the same direction.
+
+    Keep the actual legal destinations unchanged for hit testing. Adjacent,
+    non-overlapping targets remain distinct (e.g. two soldier targets).
+    """
+    groups: dict[tuple[int, int, int], list[tuple[int, int, int, int]]] = {}
+    for dest, footprints in destination_footprints(positions, indices):
+        for index, x, y, w, h in footprints:
+            group = groups.setdefault((index, dest.dx, dest.dy), [])
+            if group:
+                a, b, c, d = group[-1]
+                if x < a+c and a < x+w and y < b+d and b < y+h:
+                    left, top = min(a,x), min(b,y)
+                    group[-1] = (left, top, max(a+c,x+w)-left, max(b+d,y+h)-top)
+                    continue
+            group.append((x,y,w,h))
+    return tuple(dict.fromkeys(rect for group in groups.values() for rect in group))
+
+
 def target_for_click(positions: tuple[int, ...], indices: tuple[int, ...],
                      x: int, y: int) -> tuple[int, int, int] | None:
     """点击一个空格后，找到使选中棋子覆盖该空格的最近合法直线移动。

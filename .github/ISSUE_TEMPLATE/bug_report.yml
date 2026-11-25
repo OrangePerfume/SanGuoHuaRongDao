@@ -1,0 +1,133 @@
+name: BUG 反馈 / 錯誤回報 / Bug report
+description: 报告游戏或构建问题 / 回報遊戲或建置問題 / Report game or build issues
+title: '[BUG] '
+labels:
+- bug
+body:
+- type: markdown
+  attributes:
+    value: '欢迎反馈！可以使用简体中文、繁體中文或 English，无需重复填写三种语言。
+
+
+      歡迎回饋！請選擇您習慣的語言填寫即可。
+
+
+      Thanks for your feedback! Please use whichever of the three languages you prefer.'
+- type: checkboxes
+  id: duplicate_check
+  attributes:
+    label: 提交前确认 / 提交前確認 / Before submitting
+    options:
+    - label: 我已搜索现有 Issues，未发现重复报告。 / 我已搜尋現有 Issues，未發現重複回報。 / I searched existing issues and found no duplicate.
+      required: true
+- type: input
+  id: version
+  attributes:
+    label: 游戏版本 / 遊戲版本 / Game version
+    description: 请填写完整版本号；源码构建可补充提交 SHA。 / 請填寫完整版本號；原始碼建置可補充提交 SHA。 / Enter the exact version; include a commit SHA for source builds if known.
+    placeholder: 0.4.0
+  validations:
+    required: true
+- type: dropdown
+  id: distribution
+  attributes:
+    label: 获取渠道 / 取得管道 / Distribution
+    options:
+    - GitHub Release（Windows EXE）
+    - GitHub Actions Artifact
+    - 源码构建 / 原始碼建置 / Built from source
+    - 其他或不确定 / 其他或不確定 / Other or unsure
+    multiple: false
+  validations:
+    required: true
+- type: dropdown
+  id: os
+  attributes:
+    label: 操作系统 / 作業系統 / Operating system
+    options:
+    - Windows 10 x64
+    - Windows 11 x64
+    - GitHub Actions（Windows runner）
+    - 其他 / Other
+    multiple: false
+  validations:
+    required: true
+- type: dropdown
+  id: language
+  attributes:
+    label: 界面语言 / 介面語言 / UI language
+    options:
+    - 简体中文
+    - 繁體中文
+    - English
+    - 未进入界面 / 未進入介面 / Not reached or not applicable
+    multiple: false
+  validations:
+    required: true
+- type: dropdown
+  id: category
+  attributes:
+    label: 问题分类 / 問題分類 / Category
+    options:
+    - 棋局规则与计步 / 棋局規則與計步 / Game rules and move count
+    - 点击、拖动与多选 / 點擊、拖曳與多選 / Click, drag and multiselect
+    - 移动预选框 / 移動預選框 / Move hints
+    - 移动与撤销动画 / 移動與復原動畫 / Move and undo animations
+    - 多语言与翻译 / 多語言與翻譯 / Localization
+    - 界面布局与显示 / 介面配置與顯示 / Layout and rendering
+    - 计时与成绩保存 / 計時與成績儲存 / Timer and records
+    - 程序启动与运行 / 程式啟動與執行 / Startup and runtime
+    - CI、EXE 构建与发布 / CI、EXE 建置與發佈 / CI, build and release
+    - 其他 / Other
+    multiple: false
+  validations:
+    required: true
+- type: textarea
+  id: actual
+  attributes:
+    label: 问题描述 / 問題描述 / Actual behavior
+    description: 说明出现了什么问题；如有错误消息请保留原文。 / 說明發生了什麼問題；如有錯誤訊息請保留原文。 / Describe what happened and include the exact error if available.
+  validations:
+    required: true
+- type: textarea
+  id: reproduction
+  attributes:
+    label: 复现步骤 / 重現步驟 / Steps to reproduce
+    description: 棋局问题请尽量描述初始状态、所选棋子、移动方向与操作顺序；CI 问题请附失败步骤。 / 棋局問題請描述起始狀態、所選棋子、移動方向與操作順序；CI 問題請附失敗步驟。 / Include board state, selected pieces, moves and input sequence, or the failing CI step. If not reproducible, describe the circumstances.
+    placeholder: '1.
+
+      2.
+
+      3.'
+  validations:
+    required: true
+- type: textarea
+  id: expected
+  attributes:
+    label: 预期行为 / 預期行為 / Expected behavior
+    description: 说明正常情况下应发生什么。 / 說明正常情況下應發生什麼。 / Describe what should have happened.
+  validations:
+    required: true
+- type: dropdown
+  id: frequency
+  attributes:
+    label: 发生频率 / 發生頻率 / Frequency
+    options:
+    - 每次 / Every time
+    - 经常 / 經常 / Often
+    - 偶尔 / 偶爾 / Sometimes
+    - 仅一次 / 僅一次 / Once
+    - 不确定 / 不確定 / Unsure
+    multiple: false
+  validations:
+    required: true
+- type: textarea
+  id: details
+  attributes:
+    label: 截图、日志与补充信息 / 截圖、記錄與補充資訊 / Evidence
+    description: '截图可直接粘贴或拖入文本框；请先移除账号、个人路径和其他隐私信息。 / 截圖可直接貼上或拖入文字框；請先移除帳號、個人路徑及其他隱私資訊。 / Paste or drag screenshots here; remove account details, personal paths and other private information.
+
+
+      可补充 Windows 版本、DPI 缩放比例、动画速度或 Actions 链接。 / 可補充 Windows 版本、DPI 縮放比例、動畫速度或 Actions 連結。 / Optional: Windows build, DPI scaling, animation speed or Actions link.'
+  validations:
+    required: false

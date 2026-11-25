@@ -2,7 +2,7 @@
 import unittest
 
 from huarongdao.core import (
-    PIECES, START, BOARD_W, destination_footprints,
+    PIECES, START, BOARD_W, destination_footprints, display_hint_rectangles,
     legal_destinations, target_for_click, valid,
 )
 
@@ -68,6 +68,23 @@ class HintGeometryTests(unittest.TestCase):
                     self.assertEqual((col, row),
                                      (destination.positions[index] % BOARD_W,
                                       destination.positions[index] // BOARD_W))
+
+    def test_overlapping_vertical_targets_are_one_three_cell_rectangle(self):
+        state = (1, 16, 9, 11, 8, 10, 0, 4, 18, 19)
+        self.assertTrue(valid(state))
+        self.assertEqual(display_hint_rectangles(state, (3,)), ((3, 0, 1, 3),))
+        self.assertEqual(target_for_click(state, (3,), 3, 1), (0, -1, 1))
+        self.assertEqual(target_for_click(state, (3,), 3, 0), (0, -1, 2))
+
+    def test_overlapping_horizontal_targets_are_one_three_cell_rectangle(self):
+        state = (1, 16, 9, 3, 8, 11, 0, 4, 10, 14)
+        self.assertTrue(valid(state))
+        self.assertEqual(display_hint_rectangles(state, (1,)), ((1, 4, 3, 1),))
+        self.assertEqual(target_for_click(state, (1,), 2, 4), (1, 0, 1))
+        self.assertEqual(target_for_click(state, (1,), 3, 4), (1, 0, 2))
+
+    def test_adjacent_soldier_targets_remain_separate(self):
+        self.assertEqual(display_hint_rectangles(START, (8,)), ((1, 4, 1, 1), (2, 4, 1, 1)))
 
     def test_empty_and_invalid_selection_generate_no_hints(self):
         self.assertEqual(legal_destinations(START, ()), ())

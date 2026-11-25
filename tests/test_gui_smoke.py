@@ -182,6 +182,8 @@ class GuiSmokeTests(unittest.TestCase):
                 ((1, 9, 0, 11, 12, 14, 8, 19, 17, 13), 0, 2, 2),
                 ((1, 9, 0, 3, 12, 11, 13, 14, 17, 19), 1, 2, 1),
                 ((1, 9, 0, 3, 8, 11, 13, 14, 17, 19), 4, 1, 2),
+                ((1, 16, 9, 11, 8, 10, 0, 4, 18, 19), 3, 1, 3),
+                ((1, 16, 9, 3, 8, 11, 0, 4, 10, 14), 1, 3, 1),
                 (win.game.positions, 8, 1, 1),
             ):
                 win.game.replace_for_test(state)
@@ -190,6 +192,8 @@ class GuiSmokeTests(unittest.TestCase):
                 _, _, unit = board._layout()
                 hints = board._hint_rects()
                 self.assertGreater(len(hints), 0)
+                if width == 3 or height == 3:
+                    self.assertEqual(len(hints), 1)
                 for hint in hints:
                     self.assertAlmostEqual(hint.width(), width * unit - 14)
                     self.assertAlmostEqual(hint.height(), height * unit - 14)

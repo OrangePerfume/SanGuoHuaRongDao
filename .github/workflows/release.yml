@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing version tag to rebuild (for example v0.3.0)'
+        description: 'Existing version tag to rebuild (for example v0.4.0)'
         required: true
         type: string
 
@@ -42,34 +42,22 @@ jobs:
       - name: Build Windows application
         shell: cmd
         run: >-
-          python -m PyInstaller --noconfirm --clean --onedir --windowed
+          python -m PyInstaller --noconfirm --clean --onefile --windowed
           --name SanGuoHuaRongDao
           --icon "huarongdao\assets\icon.ico"
           --add-data "huarongdao\assets;huarongdao\assets"
           main.py
+      - name: Smoke test the packaged executable
+        run: python tools/check_frozen.py dist/SanGuoHuaRongDao.exe
       - name: Package Windows application
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          if ($env:RELEASE_TAG -notmatch '^v\d+\.\d+\.\d+$') {
-            throw "Invalid version tag: $env:RELEASE_TAG"
-          }
-          Copy-Item LICENSE 'dist/SanGuoHuaRongDao/LICENSE.txt'
-          Copy-Item THIRD_PARTY_NOTICES.md 'dist/SanGuoHuaRongDao/THIRD_PARTY_NOTICES.md'
-          Copy-Item README.md 'dist/SanGuoHuaRongDao/README.md'
-          Copy-Item CHANGELOG.md 'dist/SanGuoHuaRongDao/CHANGELOG.md'
-          Copy-Item CONTRIBUTING.md 'dist/SanGuoHuaRongDao/CONTRIBUTING.md'
-          Copy-Item docs 'dist/SanGuoHuaRongDao/docs' -Recurse
-          $asset = "SanGuoHuaRongDao-$env:RELEASE_TAG-win-x64.zip"
-          Compress-Archive -Path 'dist/SanGuoHuaRongDao' -DestinationPath $asset -Force
-          if (-not (Test-Path -LiteralPath $asset)) { throw 'Build ZIP was not created' }
+        run: python tools/package_windows.py --exe dist/SanGuoHuaRongDao.exe --stage build/release-package --zip-dir . --tag "${{ env.RELEASE_TAG }}"
       - name: Report measured Windows build sizes
-        run: python tools/report_build_size.py --dir dist/SanGuoHuaRongDao --exe dist/SanGuoHuaRongDao/SanGuoHuaRongDao.exe --zip SanGuoHuaRongDao-${{ env.RELEASE_TAG }}-win-x64.zip
+        run: python tools/report_build_size.py --dir build/release-package --exe dist/SanGuoHuaRongDao.exe --zip SanGuoHuaRongDao-${{ env.RELEASE_TAG }}-win-x64.zip
       - name: Save Windows ZIP as workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: SanGuoHuaRongDao-${{ env.RELEASE_TAG }}-win-x64
-          path: SanGuoHuaRongDao-*-win-x64.zip
+          path: SanGuoHuaRongDao-${{ env.RELEASE_TAG }}-win-x64.zip
           if-no-files-found: error
       - name: Create or update versioned GitHub Release
         shell: pwsh
