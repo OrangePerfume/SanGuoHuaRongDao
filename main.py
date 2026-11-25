@@ -1,6 +1,44 @@
 """三国华容道 Windows EXE 入口。"""
+import sys
 from huarongdao.gui import run
 
 
+def smoke_test() -> int:
+    from PySide6.QtGui import QPixmap
+    from PySide6.QtWidgets import QApplication
+    from shiboken6 import delete
+    from huarongdao.gui import ASSETS, PORTRAITS, MainWindow
+
+    app = QApplication([])
+    window = None
+    try:
+        for path in [ASSETS / 'wood_board.jpg', ASSETS / 'wood_dark.jpg',
+                     *(ASSETS / 'portraits' / f'{name}.png' for name in set(PORTRAITS))]:
+            if QPixmap(str(path)).isNull():
+                raise RuntimeError(f'Bundled resource missing: {path}')
+        window = MainWindow()
+        window.resize(1170, 840)
+        window.show()
+        app.processEvents()
+        for language in ('zh-CN', 'zh-TW', 'en'):
+            window.set_language(language, persist=False)
+            for width, height in ((990, 700), (1170, 840)):
+                window.resize(width, height)
+                app.processEvents()
+                if window.grab().isNull():
+                    raise RuntimeError(f'Window render failed: {language} {width}x{height}')
+                for scroll in (window.side_scroll, window.help_scroll):
+                    if (scroll.horizontalScrollBar().maximum() != 0
+                            or scroll.widget().width() > scroll.viewport().width()):
+                        raise RuntimeError(f'Horizontal overflow: {language} {width}x{height} {scroll.objectName()}')
+        return 0
+    finally:
+        if window is not None:
+            window.close()
+            delete(window)
+        app.processEvents()
+        delete(app)
+
+
 if __name__ == '__main__':
-    raise SystemExit(run())
+    raise SystemExit(smoke_test() if sys.argv[1:] == ['--smoke-test'] else run())

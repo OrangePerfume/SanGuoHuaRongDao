@@ -29,6 +29,7 @@ class HelpLayoutQtTests(unittest.TestCase):
     def test_help_layout_at_minimum_and_default_window_sizes(self):
         from huarongdao.gui import MainWindow
         win = MainWindow()
+        win.set_language('zh-CN', persist=False)
         try:
             for width, height in ((990, 700), (1170, 840)):
                 with self.subTest(size=(width, height)):
@@ -66,6 +67,7 @@ class HelpLayoutQtTests(unittest.TestCase):
         from PySide6.QtWidgets import QLabel
         from huarongdao.gui import MainWindow
         win = MainWindow()
+        win.set_language('zh-CN', persist=False)
         try:
             win.resize(990,700)
             win.show()

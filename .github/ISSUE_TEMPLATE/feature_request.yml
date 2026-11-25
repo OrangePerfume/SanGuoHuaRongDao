@@ -1,0 +1,73 @@
+name: 功能增强 / 功能增強 / Feature request
+description: 提出新功能或体验优化 / 提出新功能或體驗優化 / Suggest features and improvements
+title: '[ENHANCEMENT] '
+labels:
+- enhancement
+body:
+- type: markdown
+  attributes:
+    value: '欢迎反馈！可以使用简体中文、繁體中文或 English，无需重复填写三种语言。
+
+
+      歡迎回饋！請選擇您習慣的語言填寫即可。
+
+
+      Thanks for your feedback! Please use whichever of the three languages you prefer.'
+- type: checkboxes
+  id: duplicate_check
+  attributes:
+    label: 提交前确认 / 提交前確認 / Before submitting
+    options:
+    - label: 我已搜索现有 Issues，未发现重复报告。 / 我已搜尋現有 Issues，未發現重複回報。 / I searched existing issues and found no duplicate.
+      required: true
+- type: dropdown
+  id: category
+  attributes:
+    label: 建议类型 / 建議類型 / Category
+    options:
+    - 游戏玩法与规则 / 遊戲玩法與規則 / Gameplay and rules
+    - 新增棋局与关卡 / 新增棋局與關卡 / New boards and levels
+    - 界面与人物美术 / 介面與人物美術 / UI and artwork
+    - 操作体验与动画 / 操作體驗與動畫 / Controls and animations
+    - 多语言与无障碍 / 多語言與無障礙 / Localization and accessibility
+    - 性能与程序体积 / 效能與程式大小 / Performance and size
+    - 构建、发布与项目维护 / 建置、發佈與專案維護 / Build, release and maintenance
+    - 其他 / Other
+    multiple: false
+  validations:
+    required: true
+- type: textarea
+  id: proposal
+  attributes:
+    label: 功能建议 / 功能建議 / Feature proposal
+    description: 请描述希望新增或改进的功能。 / 請描述希望新增或改進的功能。 / Describe the proposed feature or improvement.
+  validations:
+    required: true
+- type: textarea
+  id: motivation
+  attributes:
+    label: 使用场景及现有不足 / 使用情境及現有不足 / Motivation
+    description: 什么时候需要它？目前有什么不便？ / 什麼時候需要它？目前有什麼不便？ / When would you use it, and what problem would it solve?
+  validations:
+    required: true
+- type: textarea
+  id: expected
+  attributes:
+    label: 期望效果 / 預期效果 / Desired outcome
+    description: 说明理想的操作或界面表现，必要时给出示例。 / 說明理想的操作或介面表現，必要時提供範例。 / Explain the desired behavior or appearance, with examples if helpful.
+  validations:
+    required: true
+- type: textarea
+  id: alternatives
+  attributes:
+    label: 替代方案 / 替代方案 / Alternatives
+    description: 是否考虑过其他实现方式？ / 是否考慮過其他實作方式？ / Have you considered other approaches?
+  validations:
+    required: false
+- type: textarea
+  id: references
+  attributes:
+    label: 参考图片与补充信息 / 參考圖片與補充資訊 / References
+    description: 截图可直接粘贴或拖入文本框；请先移除账号、个人路径和其他隐私信息。 / 截圖可直接貼上或拖入文字框；請先移除帳號、個人路徑及其他隱私資訊。 / Paste or drag screenshots here; remove account details, personal paths and other private information.
+  validations:
+    required: false

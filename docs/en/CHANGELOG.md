@@ -2,6 +2,17 @@
 
 # Changelog
 
+## V0.4.0 — 2026-11-25
+
+- Fixed horizontal overflow in the English sidebar at smaller window sizes and improved wrapping and sidebar width adaptation across all three languages.
+- Added a language-switching button in the upper-right corner: Simplified Chinese, Traditional Chinese, and English, updated immediately.
+- Localized board labels, character names, controls, records, timers, help text, speed settings, and confirmation dialogs.
+- Saved the chosen UI language across launches; switching languages preserves the puzzle, undo history, timer, and animation speed.
+- Preserved full-shape destination hints and responsive layout, with improved fitting of longer English character names on piece labels.
+- Added regression checks for translation coverage, formatting arguments, persistence, and window geometry.
+- Merged overlapping destination outlines in the same direction into one uniformly filled rectangle while preserving legal movement distances.
+- Switched Windows distribution to a single-file EXE with a ZIP containing only the executable, README.md and combined LICENSE.txt.
+
 ## V0.3.0 — 2026-11-21
 
 - Improved fast consecutive moves: animations continue from the current on-screen position rather than restarting from an outdated cell.

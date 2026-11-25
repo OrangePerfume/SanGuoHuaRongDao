@@ -1,16 +1,22 @@
 [简体中文](../../README.md) · [繁體中文](../../docs/zh-TW/README.md) · [English](../../docs/en/README.md)
 
-# 三國華容道 · 橫刀立馬（V0.3.0）
+# 三國華容道 · 橫刀立馬（V0.4.0）
 
 [![Windows CI](https://github.com/OrangePerfume/SanGuoHuaRongDao/actions/workflows/ci.yml/badge.svg)](https://github.com/OrangePerfume/SanGuoHuaRongDao/actions/workflows/ci.yml) [![MIT License](https://img.shields.io/badge/license-MIT-yellow.svg)](../../LICENSE)
 
 這是一款適用於 **Windows 10 / 11**、完全離線的單機華容道遊戲。保留經典「橫刀立馬」玩法，搭配彩色木質棋盤與三國人物插畫。懷舊的是遊戲體驗，而不是黑白螢幕。
 
-**版本：0.3.0**。改善連續移動及復原動畫，新增慢、標準、快三種速度，並完善 Windows 自動發行流程。
+**版本：0.4.0**。新增遊戲內介面三語切換，支援簡體中文、繁體中文與英文，即時套用並儲存設定。
 
 ![由專案素材製作的靜態預覽，非 Windows 實際遊戲截圖](../../PREVIEW.png)
 
-> 圖片僅是靜態素材預覽，不能視為 Windows 實際執行畫面。遊戲介面目前仍是簡體中文；本頁提供的是**繁體中文專案文件**。
+> 圖片為專案素材製作的靜態預覽。遊戲介面和專案文件皆支援簡體中文、繁體中文、英文；同一套 EXE 可直接切換。
+
+## 介面語言
+
+- 在遊戲視窗右上角點選 **「語言 / Language」按鈕**，選擇 **简体中文 / 繁體中文 / English**。
+- 棋盤、人物姓名、操作按鈕、玩法說明、成績及對話框會立即切換，不需要重新啟動。
+- 預設簡體中文，會自動記住上次選項；切換不影響目前棋局、復原紀錄、計時及動畫速度。
 
 ## 遊戲規則
 
@@ -28,6 +34,7 @@
 - **點選移動**：點選棋子後，再點選綠色的合法目標空位，棋子會沿合法直線移動；成功後清除選取及提示。
 - **Ctrl 多選**：按住 Ctrl 逐一點選棋子，可將多枚棋子朝相同方向、以相同距離一起移動；任何棋子碰撞或越界則該次移動無效。
 - **完整目標提示**：曹操為單一 2×2 正方形、橫向武將為 2×1 長方形、直向武將為 1×2 長方形、小兵為 1×1 正方形，不會拆成多個小方塊。
+- 合併同方向重疊的移動預選框，統一描邊與填色，保留各合法移動距離。
 - **群組復原**：一組同步移動可一次復原；步數仍依棋子數量與位移格數計算。
 
 - **棋子滑動動畫**：快速連續操作會從棋子目前顯示位置接續滑動；復原時亦會平順返回。
@@ -36,11 +43,13 @@
 
 ## 下載與執行
 
-請至 [GitHub Releases](https://github.com/OrangePerfume/SanGuoHuaRongDao/releases) 下載與版本對應的 `SanGuoHuaRongDao-v0.3.0-win-x64.zip`（成功建置並發行後才會出現），完整解壓縮並執行：
+請至 [GitHub Releases](https://github.com/OrangePerfume/SanGuoHuaRongDao/releases) 下載與版本對應的 `SanGuoHuaRongDao-v0.4.0-win-x64.zip`，完整解壓縮並執行：
 
-`SanGuoHuaRongDao/SanGuoHuaRongDao.exe`
+`SanGuoHuaRongDao.exe`
 
-請保留程式資料夾中的所有相依檔案，不要只複製 EXE。遊戲執行時不需要網路連線。
+EXE 內含執行資源，無須另行安裝 Python 或 Qt。遊戲無須連線。請保留 README.md 和 LICENSE.txt。
+
+Windows 發行改用單一 EXE 檔，ZIP 僅包含程式、README.md 與合併授權聲明 LICENSE.txt。
 
 ## 原始碼執行 / Windows 建置
 
@@ -52,7 +61,7 @@ py -3.12 -m venv .venv
 .venv\Scripts\python main.py
 ```
 
-在專案根目錄執行 `build.cmd` 可安裝建置相依套件、先執行測試，再產生 `dist\SanGuoHuaRongDao\SanGuoHuaRongDao.exe`。首次安裝相依套件需要網路。建置後會顯示 EXE 及整個程式資料夾的實測容量；自動發行時也會統計 ZIP 容量。
+在專案根目錄執行 `build.cmd` 可安裝建置相依套件、先執行測試，再產生 `dist\SanGuoHuaRongDao.exe`。首次安裝相依套件需要網路。建置後會顯示 EXE 及整個程式資料夾的實測容量；自動發行時也會統計 ZIP 容量。
 
 ## 專案結構與測試
 
@@ -61,12 +70,13 @@ py -3.12 -m venv .venv
 | `huarongdao/core.py` | 棋局規則、碰撞判定及求解器 |
 | `huarongdao/model.py` | 遊戲狀態、復原、計時與步數 |
 | `huarongdao/gui.py` | PySide6 / Qt 介面 |
+| `huarongdao/i18n.py` | 簡體中文、繁體中文、英文介面翻譯 |
 | `huarongdao/records.py` | 本機最佳成績 |
 | `huarongdao/assets/` | 人物插畫、棋盤材質與圖示 |
 | `tests/` | 規則、資源、GUI 基本測試及文件一致性測試 |
 | `.github/workflows/` | Windows CI 及標籤發行 |
 
-嚴格測試指令：`python -X faulthandler tools/run_tests.py --require-qt`。CI 在 Windows 安裝 Qt 後執行；非 Qt 環境測試通過不代表已完成 Windows 實機驗收。
+嚴格測試指令：`python -X faulthandler tools/run_tests.py --require-qt`。Windows CI 涵蓋遊戲規則與 Qt 圖形介面；門禁失敗時停止建置。
 
 ## 授權與其他文件
 

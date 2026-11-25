@@ -21,24 +21,28 @@ set "P=.venv\Scripts\python.exe"
 echo [2/5] Installing fixed game dependencies and build tool...
 "%P%" -m pip install --disable-pip-version-check -r requirements-build.txt
 if errorlevel 1 exit /b 1
-echo [3/5] Running headless puzzle and model tests...
+echo [3/5] Running strict unit and Qt GUI tests...
 "%P%" -X faulthandler tools/run_tests.py --require-qt
 if errorlevel 1 (
     echo [ERROR] Tests failed. Build aborted.
     exit /b 1
 )
 echo [4/5] Building 64-bit Windows executable...
-"%P%" -m PyInstaller --noconfirm --clean --onedir --windowed --name SanGuoHuaRongDao --icon "huarongdao\assets\icon.ico" --add-data "huarongdao\assets;huarongdao\assets" main.py
+"%P%" -m PyInstaller --noconfirm --clean --onefile --windowed --name SanGuoHuaRongDao --icon "huarongdao\assets\icon.ico" --add-data "huarongdao\assets;huarongdao\assets" main.py
 if errorlevel 1 exit /b 1
 echo [5/5] Checking output...
-if not exist "dist\SanGuoHuaRongDao\SanGuoHuaRongDao.exe" (
+if not exist "dist\SanGuoHuaRongDao.exe" (
     echo [ERROR] Expected executable is missing.
     exit /b 1
 )
 echo.
-echo [SUCCESS] Output: dist\SanGuoHuaRongDao\SanGuoHuaRongDao.exe
-echo Keep all files inside this directory when distributing the game.
+"%P%" tools/check_frozen.py "dist\SanGuoHuaRongDao.exe"
+if errorlevel 1 exit /b 1
+echo [SUCCESS] Output: dist\SanGuoHuaRongDao.exe
+"%P%" tools/package_windows.py --exe "dist\SanGuoHuaRongDao.exe" --stage "build\release-package" --zip-dir dist
+if errorlevel 1 exit /b 1
+echo [SUCCESS] Single-file executable and three-file ZIP created.
 echo [SIZE] Measured Windows output sizes:
-"%P%" tools/report_build_size.py --dir "dist\SanGuoHuaRongDao" --exe "dist\SanGuoHuaRongDao\SanGuoHuaRongDao.exe"
+"%P%" tools/report_build_size.py --dir "build\release-package" --exe "dist\SanGuoHuaRongDao.exe"
 if errorlevel 1 exit /b 1
 exit /b 0

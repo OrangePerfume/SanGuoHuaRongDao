@@ -22,4 +22,9 @@ py -3.12 -m venv .venv
 - 請勿提交 `dist/`、`build/`、`.venv/`、私人日誌、金鑰或未取得散布授權的素材。
 - GUI 測試須在安裝 PySide6 的 Windows 環境執行；純 Python 測試並不等同 Windows EXE 驗收。
 
+## 介面翻譯
+
+- 修改遊戲介面文字時，請同步維護 `huarongdao/i18n.py` 的簡體、繁體、英文翻譯，並檢查切換語言後的介面。
+
 授權條款請見 [LICENSE](../../LICENSE)；相依套件與素材資訊見 [第三方元件聲明](THIRD_PARTY_NOTICES.md)。
+

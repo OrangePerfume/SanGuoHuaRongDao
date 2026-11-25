@@ -38,9 +38,8 @@ def _close_qt(app: object) -> None:
 
     # unittest test classes retain an app reference from setUpClass. Release
     # those references before deleting the C++ QApplication instance.
-    for module_name in ("test_gui_smoke", "test_help_layout", "test_animation_gui"):
-        module = sys.modules.get(module_name)
-        if module is None:
+    for module_name, module in tuple(sys.modules.items()):
+        if not module_name.startswith('test_') or module is None:
             continue
         for member in vars(module).values():
             if (isinstance(member, type)
