@@ -51,6 +51,20 @@ def font(point: int, bold: bool = False, serif: bool = False) -> QFont:
     return f
 
 
+def wrap_to_available_width(label: QLabel) -> None:
+    """Let translated labels wrap to the layout width, not widen a scroll panel.
+
+    Preserve QLabel's height-for-width flag so layouts reserve enough vertical
+    space for wrapped lines. Non-text controls keep their natural minimum size.
+    """
+    label.setWordWrap(True)
+    policy = label.sizePolicy()
+    policy.setHorizontalPolicy(QSizePolicy.Policy.Ignored)
+    policy.setHeightForWidth(True)
+    label.setSizePolicy(policy)
+    label.setMinimumWidth(0)
+
+
 def image_fill(painter: QPainter, pixmap: QPixmap, dest: QRectF, bias_y: float = 0.5) -> None:
     if pixmap.isNull() or dest.isEmpty():
         return
@@ -567,10 +581,12 @@ class MainWindow(QMainWindow):
         title=QLabel(tr(self.language, 'main_title'))
         self.title_label = title
         title.setFont(font(29,True))
+        wrap_to_available_width(title)
         title.setStyleSheet('color:#F6D9A2;')
         subtitle=QLabel(tr(self.language, 'subtitle'))
         self.subtitle_label = subtitle
         subtitle.setFont(font(11))
+        wrap_to_available_width(subtitle)
         subtitle.setStyleSheet('color:#D3AE7D; padding-top:2px;')
         titles.addWidget(title)
         titles.addWidget(subtitle)
@@ -578,6 +594,7 @@ class MainWindow(QMainWindow):
         edition=QLabel(tr(self.language, 'edition'))
         self.edition_label = edition
         edition.setWordWrap(True)
+        edition.setMaximumWidth(230)
         edition.setFont(font(11,True))
         edition.setStyleSheet('color:#E7C999; background:#50301D; border:1px solid #9E7147; border-radius:11px; padding:10px 14px;')
         titlebar.addWidget(edition)
@@ -631,7 +648,7 @@ class MainWindow(QMainWindow):
         self.side_scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.side_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.side_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.side_scroll.setMinimumWidth(300)
+        self.side_scroll.setMinimumWidth(400 if self.language == "en" else 300)
         self.side_scroll.setMaximumWidth(400)
         self.side_scroll.setStyleSheet('''
             QScrollArea#sideScroll { background:transparent; border:none; }
@@ -641,20 +658,22 @@ class MainWindow(QMainWindow):
             QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background:none; }
         ''')
         side.setMinimumWidth(0)
-        side.setMaximumWidth(400)
         side_layout=QVBoxLayout(side)
+        self.side_layout = side_layout
         side_layout.setContentsMargins(27,24,27,22)
         side_layout.setSpacing(12)
         header=QLabel(tr(self.language, 'chapter_title'))
         self.chapter_header = header
         header.setAlignment(Qt.AlignmentFlag.AlignCenter)
         header.setFont(font(24,True))
+        wrap_to_available_width(header)
         header.setStyleSheet('color:#532C1C; background:transparent;')
         side_layout.addWidget(header)
         tagline=QLabel(tr(self.language, 'chapter_subtitle'))
         self.tagline_label = tagline
         tagline.setAlignment(Qt.AlignmentFlag.AlignCenter)
         tagline.setFont(font(11,True))
+        wrap_to_available_width(tagline)
         tagline.setStyleSheet('color:#885B3F; background:transparent;')
         side_layout.addWidget(tagline)
         line=QFrame()
@@ -664,12 +683,14 @@ class MainWindow(QMainWindow):
         info=QLabel(tr(self.language, 'description'))
         self.intro_label = info
         info.setWordWrap(True)
+        wrap_to_available_width(info)
         info.setFont(font(12))
         info.setStyleSheet('color:#5C3927; background:transparent; line-height:1.5;')
         side_layout.addWidget(info)
         progress=QLabel(tr(self.language, 'progress'))
         self.progress_title_label = progress
         progress.setFont(font(13,True))
+        wrap_to_available_width(progress)
         progress.setStyleSheet('color:#62402B; background:transparent; padding-top:7px;')
         side_layout.addWidget(progress)
         metrics=QHBoxLayout()
@@ -682,12 +703,14 @@ class MainWindow(QMainWindow):
         self.best_label=QLabel()
         self.best_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.best_label.setWordWrap(True)
+        wrap_to_available_width(self.best_label)
         self.best_label.setFont(font(10,True))
         self.best_label.setStyleSheet('color:#775136; background:transparent;')
         side_layout.addWidget(self.best_label)
         controls=QLabel(tr(self.language, 'controls'))
         self.controls_label = controls
         controls.setFont(font(13,True))
+        wrap_to_available_width(controls)
         controls.setStyleSheet('color:#62402B; background:transparent; padding-top:9px;')
         side_layout.addWidget(controls)
         self.reset_button=dark_button(tr(self.language, 'restart'),'#396751',side,'restart')
@@ -701,6 +724,7 @@ class MainWindow(QMainWindow):
         speed_title = QLabel(tr(self.language, 'speed_heading'))
         self.speed_title_label = speed_title
         speed_title.setFont(font(11, True))
+        wrap_to_available_width(speed_title)
         speed_title.setStyleSheet('color:#62402B; background:transparent; padding-top:7px;')
         side_layout.addWidget(speed_title)
         self.speed_combo = QComboBox(side)
@@ -722,6 +746,7 @@ class MainWindow(QMainWindow):
         self.selected_info=QLabel(tr(self.language, 'selection_prefix', names=tr(self.language, 'selection_none')))
         self.selected_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.selected_info.setWordWrap(True)
+        wrap_to_available_width(self.selected_info)
         self.selected_info.setFont(font(11))
         self.selected_info.setStyleSheet('color:#714C37; background:transparent; padding-top:6px;')
         side_layout.addWidget(self.selected_info)
@@ -734,7 +759,9 @@ class MainWindow(QMainWindow):
         self.help_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.help_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.help_scroll.setMinimumHeight(112)
-        self.help_scroll.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        # The nested scroll area must not propagate its contents' preferred
+        # width to the surrounding side panel. Its text wraps inside the viewport.
+        self.help_scroll.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
         self.help_scroll.setStyleSheet('''
             QScrollArea#helpScroll { background:#F5E4C6;
                 border:1px solid #C9A87F; border-radius:8px; }
@@ -748,11 +775,13 @@ class MainWindow(QMainWindow):
         help_content.setObjectName('helpContent')
         help_content.setStyleSheet('background:#F5E4C6;')
         help_layout = QVBoxLayout(help_content)
+        self.help_layout = help_layout
         help_layout.setContentsMargins(13,11,13,12)
         help_layout.setSpacing(4)
         help_heading = QLabel(tr(self.language, 'help_title'))
         self.help_heading_label = help_heading
         help_heading.setFont(font(12,True))
+        wrap_to_available_width(help_heading)
         help_heading.setStyleSheet('color:#593A27; background:transparent;')
         help_layout.addWidget(help_heading)
         # 使用短句和分组说明；布局负责换行，长文字可向下滚动查看。
@@ -762,6 +791,7 @@ class MainWindow(QMainWindow):
         for section_id in HELP_IDS:
             heading_label = QLabel(tr(self.language, f'help.{section_id}.title'))
             heading_label.setFont(font(10, True))
+            wrap_to_available_width(heading_label)
             heading_label.setStyleSheet('color:#68452F; background:transparent;')
             help_layout.addWidget(heading_label)
             description_label = QLabel(tr(self.language, f'help.{section_id}.body'))
@@ -770,6 +800,7 @@ class MainWindow(QMainWindow):
             description_label.setFont(font(10))
             description_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             description_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+            wrap_to_available_width(description_label)
             description_label.setStyleSheet('color:#63442D; background:transparent;')
             help_layout.addWidget(description_label)
             help_layout.addSpacing(5)
@@ -826,6 +857,14 @@ class MainWindow(QMainWindow):
         self.language_actions[language].setChecked(True)
         self.chapter_header.setText(t('chapter_title'))
         self.chapter_header.setFont(font(18 if language == 'en' else 24, True))
+        # Longer English text gets extra room, without shrinking the board below
+        # its 500px minimum (990 - 46 margins - 17 spacing - 400 = 527px).
+        # Revert to the original flexible widths when switching back to Chinese.
+        self.side_scroll.setMinimumWidth(400 if language == 'en' else 300)
+        margin = 20 if language == 'en' else 27
+        self.side_layout.setContentsMargins(margin, 24, margin, 22)
+        help_margin = 10 if language == 'en' else 13
+        self.help_layout.setContentsMargins(help_margin, 11, help_margin, 12)
         self.tagline_label.setText(t('chapter_subtitle'))
         self.intro_label.setText(t('description'))
         self.progress_title_label.setText(t('progress'))
@@ -847,6 +886,13 @@ class MainWindow(QMainWindow):
         self.footer_label.setText(t('footer'))
         self.board.set_language(language)
         self._update_stats()
+        # Recompute both height-for-width layouts after replacing their text.
+        self.help_layout.invalidate()
+        self.side_layout.invalidate()
+        self.help_scroll.widget().updateGeometry()
+        self.side_scroll.widget().updateGeometry()
+        self.help_scroll.updateGeometry()
+        self.side_scroll.updateGeometry()
 
     def _change_animation_speed(self, _index: int) -> None:
         speed = self.speed_combo.currentData()
@@ -872,6 +918,7 @@ class MainWindow(QMainWindow):
             self.time_caption = name
         name.setAlignment(Qt.AlignmentFlag.AlignCenter)
         name.setFont(font(10,True))
+        wrap_to_available_width(name)
         name.setStyleSheet('color:#755239;')
         number=QLabel(value)
         number.setAlignment(Qt.AlignmentFlag.AlignCenter)

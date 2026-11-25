@@ -22,9 +22,15 @@ def smoke_test() -> int:
         app.processEvents()
         for language in ('zh-CN', 'zh-TW', 'en'):
             window.set_language(language, persist=False)
-            app.processEvents()
-            if window.grab().isNull():
-                raise RuntimeError(f'Window render failed: {language}')
+            for width, height in ((990, 700), (1170, 840)):
+                window.resize(width, height)
+                app.processEvents()
+                if window.grab().isNull():
+                    raise RuntimeError(f'Window render failed: {language} {width}x{height}')
+                for scroll in (window.side_scroll, window.help_scroll):
+                    if (scroll.horizontalScrollBar().maximum() != 0
+                            or scroll.widget().width() > scroll.viewport().width()):
+                        raise RuntimeError(f'Horizontal overflow: {language} {width}x{height} {scroll.objectName()}')
         return 0
     finally:
         if window is not None:
