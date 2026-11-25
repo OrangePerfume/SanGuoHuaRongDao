@@ -1,12 +1,8 @@
-V0.2.0 — 后续版本 / 後續版本 / Next release
+V0.3.0 — 下一个版本 / 下一個版本 / Next version
 
-简体中文：
-在 OrangePerfume/SanGuoHuaRongDao 的 V0.1.0 基础上更新本版代码与三语文档。保留 V0.1.0 标签不变，单独提交 V0.2.0 的功能。使用 Windows CI 验证通过后再创建 v0.2.0 标签。此 ZIP 不会自动发布到 GitHub。
+发布顺序：将 V0.3.0 提交到 OrangePerfume/SanGuoHuaRongDao 的 main 分支；确认 Windows CI 通过后创建 v0.3.0 标签，由 GitHub Actions 自动构建 Windows ZIP 并发布 Release。
+如同名 Release 已存在，工作流只更新同名 ZIP 附件，不重建或强制移动旧标签。原有 v0.1.0 / v0.2.0 标签保持不变。
 
-繁體中文：
-請以 OrangePerfume/SanGuoHuaRongDao 的 V0.1.0 為基礎，提交本版程式及三語文件。勿變更 V0.1.0 標籤。Windows CI 驗證成功後，再建立 v0.2.0 標籤。本 ZIP 不會自動發佈至 GitHub。
+繁體中文：先提交 V0.3.0 程式碼至 main，確認 Windows CI 成功後新增 v0.3.0 標籤，GitHub Actions 便會建置及發行 Windows ZIP。既有 Release 僅更新附件，舊版標籤維持不變。
 
-English:
-Build on V0.1.0 in OrangePerfume/SanGuoHuaRongDao. Commit the V0.2.0 functionality and all three document languages as a separate change. Do not move the V0.1.0 tag. Create v0.2.0 only after Windows CI verification. This ZIP does not publish automatically.
-
-New: click-to-move, Ctrl multi-selection, grouped undo, full-footprint destination hints.
+English: Commit V0.3.0 to main, verify Windows CI, and create the new v0.3.0 tag. GitHub Actions builds and publishes the Windows ZIP. Existing Releases update their attached ZIP without changing historical tags.

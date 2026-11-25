@@ -3,9 +3,19 @@ name: Release Windows EXE (tag)
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing version tag to rebuild (for example v0.3.0)'
+        required: true
+        type: string
 
 permissions:
   contents: write
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
   build-and-release:
@@ -14,8 +24,11 @@ jobs:
     env:
       QT_QPA_PLATFORM: offscreen
       GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -34,22 +47,60 @@ jobs:
           --icon "huarongdao\assets\icon.ico"
           --add-data "huarongdao\assets;huarongdao\assets"
           main.py
-      - name: Package and publish versioned release
+      - name: Package Windows application
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RELEASE_TAG -notmatch '^v\d+\.\d+\.\d+$') {
+            throw "Invalid version tag: $env:RELEASE_TAG"
+          }
           Copy-Item LICENSE 'dist/SanGuoHuaRongDao/LICENSE.txt'
           Copy-Item THIRD_PARTY_NOTICES.md 'dist/SanGuoHuaRongDao/THIRD_PARTY_NOTICES.md'
           Copy-Item README.md 'dist/SanGuoHuaRongDao/README.md'
           Copy-Item CHANGELOG.md 'dist/SanGuoHuaRongDao/CHANGELOG.md'
           Copy-Item CONTRIBUTING.md 'dist/SanGuoHuaRongDao/CONTRIBUTING.md'
           Copy-Item docs 'dist/SanGuoHuaRongDao/docs' -Recurse
-          $tag = $env:GITHUB_REF_NAME
-          $asset = "SanGuoHuaRongDao-$tag-win-x64.zip"
+          $asset = "SanGuoHuaRongDao-$env:RELEASE_TAG-win-x64.zip"
           Compress-Archive -Path 'dist/SanGuoHuaRongDao' -DestinationPath $asset -Force
-          $notePath = ".github/release-notes/$tag.md"
-          if (Test-Path $notePath) {
-            gh release create $tag $asset --title "三国华容道 $tag" --notes-file $notePath --verify-tag
-          } else {
-            gh release create $tag $asset --title "三国华容道 $tag" --generate-notes --verify-tag
+          if (-not (Test-Path -LiteralPath $asset)) { throw 'Build ZIP was not created' }
+      - name: Report measured Windows build sizes
+        run: python tools/report_build_size.py --dir dist/SanGuoHuaRongDao --exe dist/SanGuoHuaRongDao/SanGuoHuaRongDao.exe --zip SanGuoHuaRongDao-${{ env.RELEASE_TAG }}-win-x64.zip
+      - name: Save Windows ZIP as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SanGuoHuaRongDao-${{ env.RELEASE_TAG }}-win-x64
+          path: SanGuoHuaRongDao-*-win-x64.zip
+          if-no-files-found: error
+      - name: Create or update versioned GitHub Release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tag = $env:RELEASE_TAG
+          $asset = "SanGuoHuaRongDao-$tag-win-x64.zip"
+          if (-not (Test-Path -LiteralPath $asset)) { throw "Missing release asset: $asset" }
+          # A release may have been created by an earlier attempt. Keep the tag,
+          # release notes and release history; update only the Windows package.
+          # A missing release returns 1. Handle this as a normal branch rather
+          # than letting PowerShell treat stderr as a terminating exception.
+          $priorPreference = $ErrorActionPreference
+          $ErrorActionPreference = 'Continue'
+          try {
+            gh release view $tag --json tagName --jq .tagName 2>$null | Out-Null
+            $releaseExists = ($LASTEXITCODE -eq 0)
+          } finally {
+            $ErrorActionPreference = $priorPreference
           }
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($releaseExists) {
+            Write-Host "Release $tag already exists; uploading Windows package."
+            gh release upload $tag $asset --clobber
+          } else {
+            Write-Host "Creating Release $tag."
+            $notePath = ".github/release-notes/$tag.md"
+            if (Test-Path -LiteralPath $notePath) {
+              gh release create $tag $asset --title "三国华容道 $tag" --notes-file $notePath --verify-tag
+            } else {
+              gh release create $tag $asset --title "三国华容道 $tag" --generate-notes --verify-tag
+            }
+          }
+          if ($LASTEXITCODE -ne 0) { throw "Release publication failed with exit code $LASTEXITCODE" }
+          Write-Host "Windows ZIP published for $tag."

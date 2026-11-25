@@ -38,4 +38,7 @@ if not exist "dist\SanGuoHuaRongDao\SanGuoHuaRongDao.exe" (
 echo.
 echo [SUCCESS] Output: dist\SanGuoHuaRongDao\SanGuoHuaRongDao.exe
 echo Keep all files inside this directory when distributing the game.
+echo [SIZE] Measured Windows output sizes:
+"%P%" tools/report_build_size.py --dir "dist\SanGuoHuaRongDao" --exe "dist\SanGuoHuaRongDao\SanGuoHuaRongDao.exe"
+if errorlevel 1 exit /b 1
 exit /b 0
