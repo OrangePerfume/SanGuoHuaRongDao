@@ -148,6 +148,37 @@ class ThemeGuiTests(unittest.TestCase):
         finally:
             win.close()
 
+    def test_header_text_fits_and_restores_size_after_resize(self):
+        from PySide6.QtGui import QFontMetrics
+        from huarongdao.gui import SingleLineTitle
+        label = SingleLineTitle(tr('en', 'main_title'), 20, True)
+        try:
+            label.resize(413, 60)
+            label.show()
+            self.app.processEvents()
+            narrow = label.font().pointSize()
+            self.assertEqual(label.text(), tr('en', 'main_title'))
+            self.assertFalse(label.wordWrap())
+            for metrics in (QFontMetrics(label.font()), QFontMetrics(label.font(), label)):
+                self.assertLessEqual(metrics.horizontalAdvance(label.text()), label.contentsRect().width())
+            label.resize(1000, 60)
+            self.app.processEvents()
+            self.assertEqual(label.font().pointSize(), 20)
+            self.assertGreaterEqual(label.font().pointSize(), narrow)
+            label.resize(210, 60)
+            self.app.processEvents()
+            for locale, _ in LANGUAGES:
+                for key, point, bold in (('main_title', 20, True), ('subtitle', 11, False)):
+                    label.set_title(tr(locale, key), point, bold)
+                    self.app.processEvents()
+                    self.assertEqual(label.text(), tr(locale, key))
+                    self.assertEqual(label.toolTip(), label.text())
+                    self.assertFalse(label.wordWrap())
+                    self.assertLessEqual(label.fontMetrics().horizontalAdvance(label.text()),
+                                         label.contentsRect().width())
+        finally:
+            label.close()
+
     def test_settings_cancel_and_apply_persist_without_reset(self):
         from PySide6.QtWidgets import QDialog, QSlider, QComboBox
         from huarongdao.gui import MainWindow
