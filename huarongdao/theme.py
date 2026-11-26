@@ -18,6 +18,8 @@ def board_layout(width: int, height: int, language: str) -> tuple[float, float, 
 
 def plaque_geometry(width: int, height: int, language: str) -> tuple[int, int, int, int]:
     x, y, unit = board_layout(width, height, language)
-    plaque_width = 104 if language == 'en' else 74
+    # Use the existing reserved gutter more fully for English names. The
+    # board position and cell size stay unchanged in every locale.
+    plaque_width = 112 if language == 'en' else 74
     plaque_height = min(300, max(210, int(5 * unit * .76)))
     return int(x + 4 * unit + 29), int(y + (5 * unit - plaque_height) / 2), plaque_width, plaque_height
