@@ -5,7 +5,7 @@ import math
 from pathlib import Path
 
 from PySide6.QtCore import (
-    QEasingCurve, QPointF, QRectF, QSize, Qt, QTimer, QVariantAnimation, Signal,
+    QEasingCurve, QEvent, QPointF, QRectF, QSize, Qt, QTimer, QVariantAnimation, Signal,
     QSettings, QSignalBlocker, QStandardPaths,
 )
 from PySide6.QtGui import (
@@ -68,6 +68,61 @@ def wrap_to_available_width(label: QLabel) -> None:
     policy.setHeightForWidth(True)
     label.setSizePolicy(policy)
     label.setMinimumWidth(0)
+
+
+class SingleLineTitle(QLabel):
+    """Fit complete header text to its actual width, without wrapping or eliding."""
+    def __init__(self, text: str, point: int, bold: bool = False):
+        super().__init__(text)
+        self._preferred_font = font(point, bold)
+        self._fitting = False
+        self.setWordWrap(False)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.setFont(self._preferred_font)
+        self.setToolTip(text)
+
+    def set_title(self, text: str, point: int, bold: bool = False) -> None:
+        self._preferred_font = font(point, bold)
+        self.setText(text)
+        self.setToolTip(text)
+        self._fit_text()
+
+    def _fit_text(self) -> None:
+        if not hasattr(self, '_preferred_font') or self._fitting:
+            return
+        available = self.contentsRect().width() - 2 * self.margin()
+        if available <= 0:
+            return
+        self._fitting = True
+        try:
+            text = self.text()
+            # Allow for glyph overhang and rounding at non-integral DPI.
+            budget = max(1, available - 2)
+            candidate = QFont(self._preferred_font)
+            for point in range(self._preferred_font.pointSize(), 0, -1):
+                candidate.setPointSize(point)
+                metrics = (QFontMetrics(candidate), QFontMetrics(candidate, self))
+                if all(max(m.horizontalAdvance(text), m.boundingRect(text).width()) <= budget
+                       for m in metrics):
+                    break
+            if self.font() != candidate:
+                self.setFont(candidate)
+        finally:
+            self._fitting = False
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._fit_text()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self._fit_text()
+
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        if event.type() in (QEvent.Type.FontChange, QEvent.Type.StyleChange,
+                            QEvent.Type.DevicePixelRatioChange):
+            self._fit_text()
 
 
 def image_fill(painter: QPainter, pixmap: QPixmap, dest: QRectF, bias_y: float = 0.5) -> None:
@@ -757,17 +812,11 @@ class MainWindow(QMainWindow):
         titlebar=QHBoxLayout()
         titles=QVBoxLayout()
         titles.setSpacing(0)
-        title=QLabel(tr(self.language, 'main_title'))
+        title=SingleLineTitle(tr(self.language, 'main_title'), 20 if self.language == 'en' else 28, True)
         self.title_label = title
-        title.setFont(font(29,True))
-        title.setWordWrap(False)
-        title.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         title.setStyleSheet('color:#F6D9A2; background:rgba(33,17,12,130); border-radius:6px;')
-        subtitle=QLabel(tr(self.language, 'subtitle'))
+        subtitle=SingleLineTitle(tr(self.language, 'subtitle'), 11)
         self.subtitle_label = subtitle
-        subtitle.setFont(font(11))
-        subtitle.setWordWrap(False)
-        subtitle.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         subtitle.setStyleSheet('color:#F2D3A1; background:rgba(33,17,12,130); padding-top:2px;')
         titles.addWidget(title)
         titles.addWidget(subtitle)
@@ -1094,10 +1143,8 @@ class MainWindow(QMainWindow):
         language = self.language
         t = lambda key, **kwargs: tr(language, key, **kwargs)
         self.setWindowTitle(t('window_title'))
-        self.title_label.setText(t('main_title'))
-        self.title_label.setFont(font(20 if language == 'en' else 28, True))
-        self.subtitle_label.setText(t('subtitle'))
-        self.subtitle_label.setToolTip(t('subtitle'))
+        self.title_label.set_title(t('main_title'), 20 if language == 'en' else 28, True)
+        self.subtitle_label.set_title(t('subtitle'), 11)
         self.settings_button.setText(t('settings'))
         self.about_button.setText(t('about'))
         self.language_button.setText(t('language_button'))
