@@ -33,6 +33,17 @@ class ThemeTests(unittest.TestCase):
                     self.assertGreaterEqual(py, 0)
                     self.assertLessEqual(py+ph, height)
 
+    def test_english_plaque_uses_reserved_gutter_without_shrinking_board(self):
+        for width, height in ((500, 520), (527, 600), (660, 735), (1000, 900)):
+            x, y, cell = board_layout(width, height, 'en')
+            px, py, pw, ph = plaque_geometry(width, height, 'en')
+            self.assertEqual(pw, 112)
+            self.assertGreaterEqual(pw - 16, 96)
+            self.assertGreaterEqual(cell, 78)
+            self.assertGreater(px, x + 4 * cell + 24)
+            self.assertLessEqual(px + pw, width)
+            self.assertEqual(plaque_geometry(width, height, 'zh-CN')[2], 74)
+
     def test_dimming_bounds_and_invalid_preferences(self):
         for value, expected in [(None,22), ('oops',22), ('45',45), (-20,0), (99,65), (float('inf'),22)]:
             self.assertEqual(normalize_dimming(value), expected)
@@ -98,6 +109,42 @@ class ThemeGuiTests(unittest.TestCase):
                     self.assertTrue(win.settings_button.isVisible())
                     self.assertTrue(win.about_button.isVisible())
                     self.assertFalse(win.grab().isNull())
+        finally:
+            win.close()
+
+    def test_english_plaque_fits_every_name_and_narrow_resize(self):
+        from PySide6.QtGui import QFontMetrics
+        from huarongdao.gui import MainWindow, SelectionPlaque
+        win = MainWindow()
+        try:
+            win.set_language('en', persist=False)
+            win.show()
+            for size in ((990, 700), (1170, 840), (990, 700)):
+                win.resize(*size)
+                self.app.processEvents()
+                for selection in ((), *((i,) for i in range(10)), (4, 5), tuple(range(10))):
+                    with self.subTest(size=size, selection=selection):
+                        win.board._selected = set(selection)
+                        win.board._emit_selection()
+                        plaque = win.selected_info
+                        target, flags, text, f = plaque.text_layout()
+                        self.assertEqual(plaque.toolTip(), plaque.text())
+                        if len(selection) == 1:
+                            self.assertIn(selected_names('en', selection), text)
+                        for metrics in (QFontMetrics(f), QFontMetrics(f, plaque)):
+                            bounds = metrics.boundingRect(target, flags, text)
+                            self.assertLessEqual(bounds.width(), target.width(), text)
+                            self.assertLessEqual(bounds.height(), target.height(), text)
+            # Force a smaller-than-normal rectangle to exercise the former
+            # unchecked 8pt limit, without changing production board geometry.
+            plaque = SelectionPlaque(win.board)
+            plaque.resize(54, 180)
+            plaque.set_selection('en', 'Huang Zhong')
+            target, flags, text, f = plaque.text_layout()
+            bounds = QFontMetrics(f, plaque).boundingRect(target, flags, text)
+            self.assertLessEqual(bounds.width(), target.width())
+            self.assertLessEqual(bounds.height(), target.height())
+            self.assertIn('Huang Zhong', text)
         finally:
             win.close()
 
