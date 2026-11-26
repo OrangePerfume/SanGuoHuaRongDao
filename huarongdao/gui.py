@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 from .core import (BOARD_W, BOARD_H, PIECES, display_hint_rectangles,
                    occupied_by, shifted_group, target_for_click)
 from .model import GameModel
+from .hint import NextMove, next_move, format_hint
 from .motion import ANIMATION_DURATIONS_MS, MotionTrack
 from .records import RecordStore
 from .i18n import LANGUAGES, HELP_IDS, DEFAULT_LANGUAGE, normalize_language, piece_name, selected_names, tr
@@ -99,6 +100,7 @@ class BoardWidget(QWidget):
         self._board = QPixmap(str(ASSETS / "wood_board.jpg"))
         self._dark = QPixmap(str(ASSETS / "wood_dark.jpg"))
         self._selected: set[int] = set()
+        self.solution_hint: NextMove | None = None
         # 仅在主动选择目标时显示绿色完整棋子落点；移动成功后不再残留。
         self._targets_visible = False
         self._pressed_pos: QPointF | None = None
@@ -388,6 +390,14 @@ class BoardWidget(QWidget):
             painter.setBrush(c('#8CC786', 65))
             painter.setPen(QPen(c('#D8F0B4', 215), 2.2))
             painter.drawRoundedRect(hint, 9, 9)
+        if self.solution_hint is not None and not self.game.paused and not self.game.finished:
+            # An advisory outline, separate from the normal green destinations.
+            rect = self._displayed_piece_rect(self.solution_hint.piece, layout)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(QPen(c('#2F1C12'), 6))
+            painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 9, 9)
+            painter.setPen(QPen(c('#FFD66B'), 3))
+            painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 9, 9)
         if self.game.paused:
             painter.fillRect(board_rect,c("#120B08",188))
             painter.setPen(c("#F2D6A0"))
@@ -571,10 +581,11 @@ class ParchmentPanel(QFrame):
         p.end()
 
 
-def dark_button(text: str, shade: str, parent: QWidget, action: str) -> QPushButton:
+def dark_button(text: str, shade: str, parent: QWidget, action: str | None = None) -> QPushButton:
     b=QPushButton(text,parent)
     b.setMinimumHeight(51)
-    b.setIcon(QIcon(str(ASSETS / f"icon_{action}.png")))
+    if action is not None:
+        b.setIcon(QIcon(str(ASSETS / f"icon_{action}.png")))
     b.setIconSize(QSize(22,22))
     b.setCursor(Qt.CursorShape.PointingHandCursor)
     b.setFont(font(13,True))
@@ -593,6 +604,8 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.game=GameModel()
+        self._hint_snapshot: tuple[int, ...] | None = None
+        self._next_hint: NextMove | None = None
         writable = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
         if not writable:
             writable = str(Path.home()/'.sanguo_huarongdao')
@@ -615,6 +628,7 @@ class MainWindow(QMainWindow):
         self._win_timer.setInterval(50)
         self._win_timer.timeout.connect(self._win)
         self.board.animation_settled.connect(self._queue_win_dialog)
+        self.board.animation_settled.connect(self._refresh_hint)
         self.timer=QTimer(self)
         self.timer.setInterval(250)
         self.timer.timeout.connect(self._update_stats)
@@ -773,6 +787,12 @@ class MainWindow(QMainWindow):
         self.reset_button.clicked.connect(self._restart)
         self.undo_button.clicked.connect(self._undo)
         self.pause_button.clicked.connect(self._pause)
+        self.hint_button = dark_button(tr(self.language, 'solution_button'), '#79532E', side)
+        self.hint_button.setObjectName('nextMoveHint')
+        self.hint_button.setMinimumHeight(42)
+        self.hint_button.setFont(font(11, True))
+        self.hint_button.clicked.connect(self._toggle_hint)
+        side_layout.addWidget(self.hint_button)
         speed_title = QLabel(tr(self.language, 'speed_heading'))
         self.speed_title_label = speed_title
         speed_title.setFont(font(11, True))
@@ -925,6 +945,7 @@ class MainWindow(QMainWindow):
         self.controls_label.setText(t('controls'))
         self.reset_button.setText(t('restart'))
         self.undo_button.setText(t('undo'))
+        self.hint_button.setToolTip(t('solution_tooltip'))
         self.speed_title_label.setText(t('speed_heading'))
         self.speed_combo.setToolTip(t('speed_tooltip'))
         with QSignalBlocker(self.speed_combo):
@@ -993,7 +1014,38 @@ class MainWindow(QMainWindow):
                time=f"{self.best['seconds']//60:02}:{self.best['seconds']%60:02}")
             if self.best else tr(self.language, 'best_none')
         )
+        self._refresh_hint()
         self.board.update()
+
+    def _clear_hint(self) -> None:
+        self._hint_snapshot = None
+        self._next_hint = None
+        self.board.solution_hint = None
+
+    def _refresh_hint(self) -> None:
+        if (self._hint_snapshot is not None and
+                (self._hint_snapshot != self.game.positions or self.game.paused or self.game.finished)):
+            self._clear_hint()
+        active = self._hint_snapshot is not None
+        self.hint_button.setEnabled(not self.game.paused and not self.game.finished
+                                    and not self.board._motion.starts)
+        self.hint_button.setText(tr(self.language, 'solution_clear' if active else 'solution_button'))
+        text = format_hint(self.language, self._next_hint) if active else tr(self.language, 'footer')
+        if self.footer_label.text() != text:
+            self.footer_label.setText(text)
+        self.board.solution_hint = self._next_hint if active else None
+        self.board.update()
+
+    def _toggle_hint(self) -> None:
+        if self.game.paused or self.game.finished or self.board._motion.starts:
+            return
+        if self._hint_snapshot is not None:
+            self._clear_hint()
+        else:
+            self._next_hint = next_move(self.game.positions)
+            self._hint_snapshot = self.game.positions
+        self._refresh_hint()
+        self.board.setFocus()
 
     def _make_move(self,index:int,dx:int,dy:int,count:int) -> None:
         old=self.game.positions[index]
@@ -1093,6 +1145,7 @@ class MainWindow(QMainWindow):
                 return
         self._cancel_pending_win()
         self.game.reset()
+        self._clear_hint()
         self.board.clear_selection()
         self.board.clear_animation()
         self.selected_info.setText(tr(self.language, 'selection_prefix',

@@ -2,6 +2,14 @@
 
 # Changelog
 
+## V0.6.0 — 2026-11-26
+
+- Added a Next move button that recommends one legal single-cell slide using the existing shortest-path solver, without moving pieces automatically.
+- Highlighted the recommended piece with a gold outline and explained its location and direction in the footer, independently of the green destination hints.
+- Added manual hint clearing and invalidated stale hints after board changes, undo, pause, or restart.
+- Localized hints in Simplified Chinese, Traditional Chinese, and English while preserving puzzle state and move counts during language changes.
+- Added regression tests for hint legality, puzzle state, three-language display, and window layout.
+
 ## V0.5.0 — 2026-11-26
 
 - Fixed hit testing during piece animations by sharing visual geometry with rendering and preserving clickable piece margins (PR #5).
