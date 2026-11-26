@@ -587,16 +587,25 @@ class SelectionPlaque(QLabel):
         return heading + '\n\n' + names
 
     def text_layout(self):
-        target = self.rect().adjusted(10, 12, -10, -12)
+        horizontal_inset = 8 if self.language == 'en' else 10
+        target = self.rect().adjusted(horizontal_inset, 12, -horizontal_inset, -12)
         flags = Qt.AlignmentFlag.AlignCenter.value | Qt.TextFlag.TextWordWrap.value
         text = self.display_text()
-        point = 15 if self.language != 'en' and len(self.names) <= 3 else 11
-        while point > 8:
-            measured = QFontMetrics(font(point, True)).boundingRect(target, flags, text)
-            if measured.height() <= target.height() and measured.width() <= target.width():
-                break
-            point -= 1
-        return target, flags, text, font(point, True)
+        start = 15 if self.language != 'en' and len(self.names) <= 3 else 11
+        # Qt's word-wrap does not break an overwide word. Check the final
+        # candidate too, including at 8pt and below, rather than returning an
+        # unmeasured minimum. Measure against both the default screen and the
+        # actual widget device, which can have a different DPI.
+        for point in range(start, 0, -1):
+            candidate = font(point, True)
+            bounds = (QFontMetrics(candidate).boundingRect(target, flags, text),
+                      QFontMetrics(candidate, self).boundingRect(target, flags, text))
+            if all(r.width() <= target.width() and r.height() <= target.height()
+                   for r in bounds):
+                return target, flags, text, candidate
+        # Only possible with an abnormally tiny widget, outside the supported
+        # board geometry. Keep a valid font during transient resize events.
+        return target, flags, text, font(1, True)
 
     def paintEvent(self, event):
         painter = QPainter(self)
