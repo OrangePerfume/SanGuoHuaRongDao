@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QMenu, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
 )
 
-from .core import BOARD_W, PIECES, display_hint_rectangles, occupied_by, shifted_group, target_for_click
+from .core import BOARD_W, PIECES, display_hint_rectangles, shifted_group, target_for_click
 from .model import GameModel
 from .motion import ANIMATION_DURATIONS_MS, MotionTrack
 from .records import RecordStore
@@ -146,11 +146,21 @@ class BoardWidget(QWidget):
             )
         )
 
-    def _at(self, point: QPointF) -> int | None:
+    def _displayed_piece_rect(self, index: int) -> QRectF:
+        """The current animated rectangle, shared by painting and hit testing."""
         x0, y0, unit = self._layout()
-        cx = math.floor((point.x() - x0) / unit)
-        cy = math.floor((point.y() - y0) / unit)
-        return occupied_by(self.game.positions, cx, cy)
+        x, y = self._motion.displayed(index, self.game.positions)
+        piece = PIECES[index]
+        return QRectF(x0 + x * unit + 3, y0 + y * unit + 3,
+                      piece.w * unit - 6, piece.h * unit - 6)
+
+    def _at(self, point: QPointF) -> int | None:
+        # Later-painted pieces are on top if rapid retargeting briefly overlaps
+        # animated rectangles. Never select an invisible logical destination.
+        for index in reversed(range(len(PIECES))):
+            if self._displayed_piece_rect(index).contains(point):
+                return index
+        return None
 
     @property
     def animation_duration_ms(self) -> int:
@@ -327,11 +337,7 @@ class BoardWidget(QWidget):
         painter.drawText(exit_rect, Qt.AlignmentFlag.AlignCenter, tr(self.language, "board_exit"))
         # 多选同步动画与多棋子预览；不改变逻辑状态。
         for i in range(len(PIECES)):
-            rect = self._piece_rect(i)
-            if i in self._motion.starts:
-                grid_x, grid_y = self._motion.displayed(i, self.game.positions)
-                rect = QRectF(x0 + grid_x * unit + 3, y0 + grid_y * unit + 3,
-                              PIECES[i].w * unit - 6, PIECES[i].h * unit - 6)
+            rect = self._displayed_piece_rect(i)
             if self._preview is not None and i in self._preview:
                 ghost = list(self.game.positions)
                 ghost[i] = self._preview[i]

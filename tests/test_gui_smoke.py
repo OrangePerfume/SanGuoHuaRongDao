@@ -76,6 +76,7 @@ class GuiSmokeTests(unittest.TestCase):
             self.assertEqual(win.game.steps, 2)
             self.assertEqual(board._selected, set())  # 成功移动后不残留选中状态
             self.assertFalse(board._targets_visible)
+            board.clear_animation()  # 以下操作针对动画结束后的棋局
             click(2, 4)  # 重新选择刚移动的小兵
             click(3, 4, Qt.KeyboardModifier.ControlModifier)  # 加选另一名小兵
             self.assertEqual(board._selected, {8, 9})
@@ -151,6 +152,7 @@ class GuiSmokeTests(unittest.TestCase):
             self.assertEqual(board._selected, set())
             self.assertFalse(board._targets_visible)
 
+            board.clear_animation()
             click(1, 4)
             self.assertEqual(board._selected, {8})
             self.assertTrue(board._targets_visible)
@@ -159,11 +161,92 @@ class GuiSmokeTests(unittest.TestCase):
             self.assertEqual(win.game.positions[8], 18)
             self.assertEqual(board._selected, {8})
             self.assertFalse(board._targets_visible)
+            board.clear_animation()
             click(2, 4)  # 再次点击选中棋子可重新查看可达空位
             self.assertTrue(board._targets_visible)
             win._undo()
             self.assertEqual(board._selected, set())
             self.assertFalse(board._targets_visible)
+        finally:
+            win.close()
+
+    def test_animation_hit_testing_uses_visible_position(self):
+        """Fix #4: clicks must follow the visible piece, not its logical destination."""
+        from PySide6.QtCore import QPointF, Qt
+        from huarongdao.gui import MainWindow
+
+        class MouseEvent:
+            def __init__(self, pos, modifiers):
+                self._pos = pos
+                self._modifiers = modifiers
+
+            def button(self):
+                return Qt.MouseButton.LeftButton
+
+            def position(self):
+                return self._pos
+
+            def modifiers(self):
+                return self._modifiers
+
+        win = MainWindow()
+        try:
+            win.resize(1170, 840)
+            win.show()
+            self.app.processEvents()
+            board = win.board
+
+            def point(x, y=4.5):
+                left, top, unit = board._layout()
+                return QPointF(left + x * unit, top + y * unit)
+
+            def click(x, modifiers=Qt.KeyboardModifier.NoModifier):
+                event = MouseEvent(point(x), modifiers)
+                board.mousePressEvent(event)
+                board.mouseReleaseEvent(event)
+
+            win._make_move(8, 1, 0, 1)
+            self.assertEqual(win.game.positions[8], 17)
+            # Freeze a reproducible intermediate frame without waiting for Qt.
+            board._animation.stop()
+            board._motion.set_progress(.25)
+            self.assertEqual(board._at(point(.5)), 8)
+            self.assertIsNone(board._at(point(1.5)))
+            click(1.5)
+            self.assertEqual(board._selected, set())
+            click(.5)
+            self.assertEqual(board._selected, {8})
+            self.assertTrue(board._targets_visible)
+            click(3.5, Qt.KeyboardModifier.ControlModifier)
+            self.assertEqual(board._selected, {8, 9})
+            self.assertEqual(win.game.steps, 1)
+
+            board._motion.set_progress(.75)
+            self.assertIsNone(board._at(point(.5)))
+            self.assertEqual(board._at(point(1.5)), 8)
+            board.resize(560, 640)
+            self.assertEqual(board._at(point(1.5)), 8)
+            self.assertIsNone(board._at(point(.5)))
+
+            # Retarget a still-moving soldier together with another piece.
+            win._make_group_move((8, 9), -1, 0, 1)
+            self.assertEqual(win.game.positions[8:10], (16, 18))
+            board._animation.stop()
+            board._motion.set_progress(.25)
+            self.assertEqual(board._at(point(1.0625)), 8)
+            self.assertEqual(board._at(point(3.25)), 9)
+            win._undo()
+            board._animation.stop()
+            board._motion.set_progress(.4)
+            self.assertEqual(win.game.positions[8:10], (17, 19))
+            self.assertEqual(board._at(board._displayed_piece_rect(8).center()), 8)
+            self.assertEqual(board._at(board._displayed_piece_rect(9).center()), 9)
+            board.clear_animation()
+            self.assertEqual(board._at(point(1.5)), 8)
+            self.assertEqual(board._at(point(3.5)), 9)
+            self.assertIsNone(board._at(point(.5)))
+            self.assertIsNone(board._at(point(-.5)))
+            self.assertEqual(win.game.steps, 1)
         finally:
             win.close()
 
