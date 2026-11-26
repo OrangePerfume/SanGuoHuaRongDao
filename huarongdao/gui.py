@@ -85,6 +85,7 @@ class BoardWidget(QWidget):
     move_requested = Signal(int, int, int, int)
     group_move_requested = Signal(object, int, int, int)
     selection_changed = Signal(str)
+    animation_settled = Signal()
 
     def __init__(self, game: GameModel, parent: QWidget | None = None):
         super().__init__(parent)
@@ -209,6 +210,8 @@ class BoardWidget(QWidget):
         self._animation.setDuration(self.animation_duration_ms)
         if moving and self._motion.starts:
             self._animation.start()
+        elif moving:
+            self.animation_settled.emit()
         self.update()
 
     def _frame(self, value: object) -> None:
@@ -218,6 +221,7 @@ class BoardWidget(QWidget):
     def _end_animation(self) -> None:
         self._motion.complete()
         self.update()
+        self.animation_settled.emit()
 
     def animate(self, index: int, original_pos: int) -> None:
         self.animate_group({index: original_pos})
@@ -228,6 +232,8 @@ class BoardWidget(QWidget):
         if active:
             self._animation.start()
         self.update()
+        if not active:
+            self.animation_settled.emit()
 
     def clear_animation(self) -> None:
         self._animation.stop()
@@ -236,6 +242,7 @@ class BoardWidget(QWidget):
         self._pressed_pos = None
         self._preview = None
         self.update()
+        self.animation_settled.emit()
 
     def clear_selection(self) -> None:
         self._selected.clear()
@@ -501,9 +508,12 @@ class BoardWidget(QWidget):
             self.clear_selection()
             event.accept()
             return
-        if key in (Qt.Key.Key_Tab, Qt.Key.Key_Backtab):
-            increment = -1 if key == Qt.Key.Key_Backtab else 1
-            previous = next(iter(self._selected)) if len(self._selected) == 1 else -1
+        if (key in (Qt.Key.Key_Q, Qt.Key.Key_E)
+                and event.modifiers() == Qt.KeyboardModifier.NoModifier):
+            # Q/E select pieces; Tab and Shift+Tab retain normal focus navigation.
+            increment = -1 if key == Qt.Key.Key_Q else 1
+            previous = (next(iter(self._selected)) if len(self._selected) == 1
+                        else (-1 if increment == 1 else 0))
             self._selected = {(previous + increment) % len(PIECES)}
             self._emit_selection()
             event.accept()
@@ -519,15 +529,6 @@ class BoardWidget(QWidget):
             event.accept()
             return
         super().keyPressEvent(event)
-
-    def focusNextPrevChild(self, next: bool) -> bool:
-        if not self.game.paused and not self.game.finished:
-            increment = 1 if next else -1
-            previous = sorted(self._selected)[0] if len(self._selected) == 1 else (-1 if next else 0)
-            self._selected = {(previous + increment) % len(PIECES)}
-            self._emit_selection()
-            return True
-        return super().focusNextPrevChild(next)
 
     def wheelEvent(self,event) -> None:
         # 华容道不使用滚轮移动，以免与系统滚动误操作。
@@ -607,6 +608,13 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(990,700)
         self.resize(1170,840)
         self._init_ui()
+        self._win_pending = False
+        self._restart_confirming = False
+        self._win_timer = QTimer(self)
+        self._win_timer.setSingleShot(True)
+        self._win_timer.setInterval(50)
+        self._win_timer.timeout.connect(self._win)
+        self.board.animation_settled.connect(self._queue_win_dialog)
         self.timer=QTimer(self)
         self.timer.setInterval(250)
         self.timer.timeout.connect(self._update_stats)
@@ -995,7 +1003,7 @@ class MainWindow(QMainWindow):
             self.board.animate(index,old)
             self._update_stats()
             if self.game.finished:
-                QTimer.singleShot(self.board.animation_duration_ms + 50, self._win)
+                self._schedule_win()
 
     def _make_group_move(self, indices: tuple[int, ...], dx: int, dy: int, count: int) -> None:
         original = {i: self.game.positions[i] for i in indices}
@@ -1005,11 +1013,34 @@ class MainWindow(QMainWindow):
             self.board.animate_group(original)
             self._update_stats()
             if self.game.finished:
-                QTimer.singleShot(self.board.animation_duration_ms + 50, self._win)
+                self._schedule_win()
+
+    def _schedule_win(self) -> None:
+        """Schedule a single notification for the current completed game."""
+        self._win_pending = True
+        self._queue_win_dialog()
+
+    def _queue_win_dialog(self) -> None:
+        # Start the short post-animation delay only after motion has settled.
+        # A speed change can retarget motion, so do not use a fixed duration.
+        if (self._win_pending and self.game.finished
+                and not self._restart_confirming and not self.board._motion.starts
+                and not self._win_timer.isActive()):
+            self._win_timer.start()
+
+    def _cancel_pending_win(self) -> None:
+        self._win_pending = False
+        self._win_timer.stop()
 
     def _win(self) -> None:
-        if not self.game.finished:
+        if (not self._win_pending or not self.game.finished
+                or self._restart_confirming or self.board._motion.starts):
             return
+        # Consume the notification before opening a modal nested event loop.
+        self._cancel_pending_win()
+        self._show_win_dialog()
+
+    def _show_win_dialog(self) -> None:
         seconds=int(self.game.elapsed)
         score_saved=True
         try:
@@ -1033,6 +1064,7 @@ class MainWindow(QMainWindow):
     def _undo(self) -> None:
         before = self.game.positions
         if self.game.undo():
+            self._cancel_pending_win()
             old_positions = {i: old for i, old in enumerate(before)
                              if old != self.game.positions[i]}
             self.board.clear_selection()
@@ -1049,8 +1081,17 @@ class MainWindow(QMainWindow):
             dialog.setDefaultButton(QMessageBox.StandardButton.No)
             dialog.button(QMessageBox.StandardButton.Yes).setText(tr(self.language, 'confirm_yes'))
             dialog.button(QMessageBox.StandardButton.No).setText(tr(self.language, 'confirm_no'))
-            if dialog.exec() != QMessageBox.StandardButton.Yes:
+            # Do not open a second modal dialog while restart is being confirmed.
+            self._restart_confirming = True
+            self._win_timer.stop()
+            try:
+                accepted = dialog.exec() == QMessageBox.StandardButton.Yes
+            finally:
+                self._restart_confirming = False
+            if not accepted:
+                self._queue_win_dialog()
                 return
+        self._cancel_pending_win()
         self.game.reset()
         self.board.clear_selection()
         self.board.clear_animation()
@@ -1058,6 +1099,10 @@ class MainWindow(QMainWindow):
                                       names=tr(self.language, 'selection_none')))
         self._update_stats()
         self.board.setFocus()
+
+    def closeEvent(self, event) -> None:
+        self._cancel_pending_win()
+        super().closeEvent(event)
 
     def _pause(self) -> None:
         self.game.toggle_pause()

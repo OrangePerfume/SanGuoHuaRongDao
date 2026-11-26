@@ -1,12 +1,12 @@
 [简体中文](README.md) · [繁體中文](docs/zh-TW/README.md) · [English](docs/en/README.md)
 
-# 三国华容道 · 横刀立马（V0.4.0）
+# 三国华容道 · 横刀立马（V0.5.0）
 
 [![Windows CI](https://github.com/OrangePerfume/SanGuoHuaRongDao/actions/workflows/ci.yml/badge.svg)](https://github.com/OrangePerfume/SanGuoHuaRongDao/actions/workflows/ci.yml) [![MIT License](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
 一款面向 **Windows 10 / 11** 的完全离线单机华容道游戏：保留经典「横刀立马」玩法，采用彩色木质棋盘与三国人物插画。怀旧的是玩法，而不是黑白屏幕。
 
-**版本：0.4.0**。新增游戏界面三语切换，支持简体中文、繁体中文和英文；语言切换立即生效并自动保存。
+**版本：0.5.0**。优化棋子动画交互，修复通关提示竞态与键盘焦点导航问题。
 
 ![项目素材生成的静态预览，不是 Windows 实机截图](PREVIEW.png)
 
@@ -28,7 +28,7 @@
 ## 操作说明
 
 - **鼠标拖动**：按住一枚棋子沿水平或垂直方向拖动；路径必须逐格合法。
-- **键盘**：单击选中棋子后使用方向键或 WASD，每次移动一格。
+- **键盘**：单击或使用 Q / E 选中棋子，方向键或 WASD 每次移动一格；Tab / Shift+Tab 切换界面焦点。
 - **快捷键**：Ctrl+Z 撤销、R 重开、空格暂停 / 继续。
 - **计步与计时**：每枚棋子每移动一格记一步；第一次有效移动启动计时；完成后保存本地最佳成绩。
 - **点击移动**：单击棋子，再点击可达的绿色目标空位，沿合法直线自动移动；成功后清除选中和目标提示。
@@ -43,7 +43,7 @@
 
 ## 下载与运行
 
-从 [GitHub Releases](https://github.com/OrangePerfume/SanGuoHuaRongDao/releases) 下载与版本匹配的 `SanGuoHuaRongDao-v0.4.0-win-x64.zip`。完整解压后运行：
+从 [GitHub Releases](https://github.com/OrangePerfume/SanGuoHuaRongDao/releases) 下载与版本匹配的 `SanGuoHuaRongDao-v0.5.0-win-x64.zip`。完整解压后运行：
 
 `SanGuoHuaRongDao.exe`
 
