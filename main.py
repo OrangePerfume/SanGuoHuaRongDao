@@ -8,6 +8,7 @@ def smoke_test() -> int:
     from PySide6.QtWidgets import QApplication
     from shiboken6 import delete
     from huarongdao.gui import ASSETS, PORTRAITS, MainWindow
+    from huarongdao.hint import format_hint
 
     app = QApplication([])
     window = None
@@ -20,8 +21,15 @@ def smoke_test() -> int:
         window.resize(1170, 840)
         window.show()
         app.processEvents()
+        window.hint_button.click()
+        hint = window.board.solution_hint
+        if hint is None or window.game.steps or window.game.running:
+            raise RuntimeError('Next-move hint failed or modified the puzzle')
         for language in ('zh-CN', 'zh-TW', 'en'):
             window.set_language(language, persist=False)
+            if (window.board.solution_hint != hint
+                    or window.footer_label.text() != format_hint(language, hint)):
+                raise RuntimeError(f'Hint translation failed: {language}')
             for width, height in ((990, 700), (1170, 840)):
                 window.resize(width, height)
                 app.processEvents()
@@ -31,6 +39,9 @@ def smoke_test() -> int:
                     if (scroll.horizontalScrollBar().maximum() != 0
                             or scroll.widget().width() > scroll.viewport().width()):
                         raise RuntimeError(f'Horizontal overflow: {language} {width}x{height} {scroll.objectName()}')
+        window.hint_button.click()
+        if window.board.solution_hint is not None:
+            raise RuntimeError('Next-move hint did not clear')
         return 0
     finally:
         if window is not None:
