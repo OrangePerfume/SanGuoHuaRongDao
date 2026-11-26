@@ -2,6 +2,15 @@
 
 # Changelog
 
+## V0.7.0 — 2026-11-26
+
+- Introduced an original Red Cliffs scene with Sun–Liu alliance banners, retaining the illustrated pieces and wooden board.
+- Redesigned the main window with language, settings and about controls, a selection plaque and a dedicated hint card.
+- Placed undo and pause side by side; added a separate clear-hint control and collapsible gameplay instructions.
+- Added a settings dialog for background dimming, animation speed and interface language, with persistent preferences.
+- Added an About dialog with version, license and project link.
+- Improved responsive three-language layouts while preserving game rules, movement and score logic.
+
 ## V0.6.0 — 2026-11-26
 
 - Added a Next move button that recommends one legal single-cell slide using the existing shortest-path solver, without moving pieces automatically.

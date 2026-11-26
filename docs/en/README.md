@@ -1,12 +1,14 @@
 [简体中文](../../README.md) · [繁體中文](../../docs/zh-TW/README.md) · [English](../../docs/en/README.md)
 
-# Three Kingdoms Klotski — Heng Dao Li Ma (V0.6.0)
+# Three Kingdoms Klotski — Heng Dao Li Ma (V0.7.0)
 
 [![Windows CI](https://github.com/OrangePerfume/SanGuoHuaRongDao/actions/workflows/ci.yml/badge.svg)](https://github.com/OrangePerfume/SanGuoHuaRongDao/actions/workflows/ci.yml) [![MIT License](https://img.shields.io/badge/license-MIT-yellow.svg)](../../LICENSE)
 
 A fully offline sliding-block puzzle for **Windows 10 / 11**, featuring the classic *Heng Dao Li Ma* layout, a richly colored wooden board, and Three Kingdoms character illustrations. It brings back the **gameplay**, not the monochrome display.
 
-**Version: 0.6.0.** Added on-demand next-move hints based on the current puzzle state.
+**Version: 0.7.0.** Introduces the Red Cliffs backdrop, red-and-gold selection plaque, and redesigned controls.
+
+Settings controls background dimming, animation speed and language. The selection plaque is beside the board; multi-selection retains full names. The hint card displays recommendations and has a separate clear button. Gameplay instructions can be expanded or collapsed.
 
 ![Static preview assembled from project artwork, not a running Windows screenshot](../../PREVIEW.png)
 
@@ -32,7 +34,7 @@ A fully offline sliding-block puzzle for **Windows 10 / 11**, featuring the clas
 - **Shortcuts**: Ctrl+Z to undo, R to restart, Space to pause or resume.
 - **Steps and timer**: Each piece moving one cell counts as one step; the timer starts on the first valid move. Best results are saved locally after a win.
 - **Click-to-move**: Select a piece, then click an available green destination cell. It moves along a legal straight path, clearing the selection and hint after a successful mouse move.
-- **Next move**: Click the sidebar button to mark the recommended piece with a gold outline. The footer explains the direction and top-left grid cell. Hints do not move pieces or increase the move count; click again to clear the hint.
+- **Next move**: Click the sidebar button to mark the recommended piece with a gold outline. The hint card shows the direction and top-left grid cell. Hints do not move pieces or increase the move count; use Clear hint to dismiss the recommendation.
 - **Ctrl multi-selection**: Hold Ctrl while selecting additional pieces. The group can move in the same direction by the same distance; any collision or out-of-bounds movement rejects the operation.
 - **Full-shape destination hints**: Cao Cao has one 2×2 square hint; the horizontal general has a 2×1 rectangle; vertical generals have 1×2 rectangles; soldiers have 1×1 squares. Hints are not broken into per-cell boxes.
 - Merged overlapping destination outlines in the same direction into one uniformly filled rectangle while preserving legal movement distances.
@@ -44,7 +46,7 @@ A fully offline sliding-block puzzle for **Windows 10 / 11**, featuring the clas
 
 ## Download and run
 
-Download the version-matched `SanGuoHuaRongDao-v0.6.0-win-x64.zip` from [GitHub Releases](https://github.com/OrangePerfume/SanGuoHuaRongDao/releases). Extract the entire ZIP, then run:
+Download the version-matched `SanGuoHuaRongDao-v0.7.0-win-x64.zip` from [GitHub Releases](https://github.com/OrangePerfume/SanGuoHuaRongDao/releases). Extract the entire ZIP, then run:
 
 `SanGuoHuaRongDao.exe`
 

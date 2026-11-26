@@ -25,7 +25,7 @@ body:
   attributes:
     label: 游戏版本 / 遊戲版本 / Game version
     description: 请填写完整版本号；源码构建可补充提交 SHA。 / 請填寫完整版本號；原始碼建置可補充提交 SHA。 / Enter the exact version; include a commit SHA for source builds if known.
-    placeholder: 0.4.0
+    placeholder: 0.7.0
   validations:
     required: true
 - type: dropdown

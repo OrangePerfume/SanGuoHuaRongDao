@@ -1,5 +1,1 @@
-V0.6.0 · 下一步提示 / 下一步提示 / Next-move hints
-
-新增基于当前棋局的合法移动提示，不自动移动棋子。
-繁體中文：新增依目前棋局計算的合法移動提示，不自動移動棋子。
-English: On-demand legal move recommendations without moving pieces automatically.
+V0.7.0 · 赤壁主题与现代化界面 / 赤壁主題與現代化介面 / Red Cliffs theme and modern interface

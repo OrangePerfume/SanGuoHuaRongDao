@@ -84,10 +84,13 @@ class SolutionHintGuiTests(unittest.TestCase):
         self.assertEqual(win.board._selected, {9})
         self.assertTrue(win.board._targets_visible)
         self.assertEqual(win.board.solution_hint, next_move(win.game.positions))
-        self.assertEqual(win.hint_button.text(), tr(win.language, 'solution_clear'))
-        self.assertEqual(win.footer_label.text(), format_hint(win.language, win.board.solution_hint))
-        win.hint_button.click()
+        self.assertEqual(win.hint_button.text(), tr(win.language, 'solution_button'))
+        self.assertTrue(win.clear_hint_button.isEnabled())
+        self.assertEqual(win.hint_message.text(), format_hint(win.language, win.board.solution_hint))
+        win.clear_hint_button.click()
         self.assertIsNone(win.board.solution_hint)
+        self.assertFalse(win.clear_hint_button.isEnabled())
+        self.assertEqual(win.hint_message.text(), tr(win.language, 'solution_idle'))
         self.assertEqual(win.footer_label.text(), tr(win.language, 'footer'))
 
     def test_hint_invalidates_on_move_undo_pause_and_reset(self):
@@ -120,8 +123,10 @@ class SolutionHintGuiTests(unittest.TestCase):
         for locale in ('zh-CN', 'zh-TW', 'en', 'zh-CN'):
             win.set_language(locale, persist=False)
             self.assertEqual(win.board.solution_hint, suggestion)
-            self.assertEqual(win.footer_label.text(), format_hint(locale, suggestion))
-            self.assertEqual(win.hint_button.text(), tr(locale, 'solution_clear'))
+            self.assertEqual(win.hint_message.text(), format_hint(locale, suggestion))
+            self.assertEqual(win.clear_hint_button.text(), tr(locale, 'solution_clear'))
+            self.assertTrue(win.clear_hint_button.isEnabled())
+            win.set_help_expanded(True)
             for size in ((990, 700), (1170, 840)):
                 with self.subTest(locale=locale, size=size):
                     win.resize(*size)

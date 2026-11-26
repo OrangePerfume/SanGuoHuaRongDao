@@ -1,12 +1,14 @@
 [简体中文](README.md) · [繁體中文](docs/zh-TW/README.md) · [English](docs/en/README.md)
 
-# 三国华容道 · 横刀立马（V0.6.0）
+# 三国华容道 · 横刀立马（V0.7.0）
 
 [![Windows CI](https://github.com/OrangePerfume/SanGuoHuaRongDao/actions/workflows/ci.yml/badge.svg)](https://github.com/OrangePerfume/SanGuoHuaRongDao/actions/workflows/ci.yml) [![MIT License](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
 一款面向 **Windows 10 / 11** 的完全离线单机华容道游戏：保留经典「横刀立马」玩法，采用彩色木质棋盘与三国人物插画。怀旧的是玩法，而不是黑白屏幕。
 
-**版本：0.6.0**。新增基于当前棋局的下一步提示，帮助玩家自主解题。
+**版本：0.7.0**。新增赤壁主题背景、红金选中牌与现代化操作面板。
+
+设置中可调整赤壁背景压暗程度、动画速度和界面语言。棋盘右侧显示当前选中人物；多选可查看完整名称。右侧解题辅助卡片显示建议，使用独立清除按钮；玩法说明可展开或收起。
 
 ![项目素材生成的静态预览，不是 Windows 实机截图](PREVIEW.png)
 
@@ -32,7 +34,7 @@
 - **快捷键**：Ctrl+Z 撤销、R 重开、空格暂停 / 继续。
 - **计步与计时**：每枚棋子每移动一格记一步；第一次有效移动启动计时；完成后保存本地最佳成绩。
 - **点击移动**：单击棋子，再点击可达的绿色目标空位，沿合法直线自动移动；成功后清除选中和目标提示。
-- **下一步提示**：点击右侧按钮，金色边框标记推荐棋子，底部显示建议方向及格位（以棋子左上角为准）。提示不会自动移动或增加步数；再次点击可清除提示。
+- **下一步提示**：点击右侧按钮，金色边框标记推荐棋子，解题卡片显示建议方向及格位（以棋子左上角为准）。提示不会自动移动或增加步数；点击「清除提示」即可取消。
 - **Ctrl 多选**：按住 Ctrl 依次点击棋子，多枚棋子可沿相同方向、相同距离一起移动；任一棋子碰撞或越界则不允许该次移动。
 - **完整目标提示**：曹操显示一个 2×2 正方形、横将一个 2×1 横长方形、竖将一个 1×2 竖长方形、小兵一个 1×1 正方形，不拆成小格。
 - 合并同方向重叠的移动预选框，统一描边和填充，保留各合法移动距离。
@@ -44,7 +46,7 @@
 
 ## 下载与运行
 
-从 [GitHub Releases](https://github.com/OrangePerfume/SanGuoHuaRongDao/releases) 下载与版本匹配的 `SanGuoHuaRongDao-v0.6.0-win-x64.zip`。完整解压后运行：
+从 [GitHub Releases](https://github.com/OrangePerfume/SanGuoHuaRongDao/releases) 下载与版本匹配的 `SanGuoHuaRongDao-v0.7.0-win-x64.zip`。完整解压后运行：
 
 `SanGuoHuaRongDao.exe`
 

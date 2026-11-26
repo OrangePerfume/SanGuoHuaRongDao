@@ -18,7 +18,7 @@ class AssetsTests(unittest.TestCase):
                     self.assertGreaterEqual(im.height, 250)
 
     def test_visual_textures_and_icon_present(self):
-        for name in ('wood_board.jpg','wood_dark.jpg','parchment.jpg','icon.png','icon.ico'):
+        for name in ('wood_board.jpg','wood_dark.jpg','red_cliffs.jpg','parchment.jpg','icon.png','icon.ico'):
             with self.subTest(name=name):
                 self.assertTrue((ASSETS/name).is_file())
 
