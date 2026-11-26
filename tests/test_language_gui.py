@@ -123,6 +123,8 @@ class LanguageGuiTests(unittest.TestCase):
             win.close()
 
     def _assert_sidebar_fits(self, win):
+        win.set_help_expanded(True)
+        self.app.processEvents()
         # A hidden scrollbar is not evidence of fitting: inspect both range
         # and the actual content geometry, including the nested help viewport.
         for scroll in (win.side_scroll, win.help_scroll):
@@ -138,7 +140,7 @@ class LanguageGuiTests(unittest.TestCase):
                 self.assertGreaterEqual(rect.left(), 0)
                 self.assertLess(rect.right(), content.width())
         for label in (win.chapter_header, win.intro_label, win.best_label,
-                      win.selected_info, win.help_heading_label,
+                      win.help_heading_label, win.hint_message,
                       *win.help_titles, *win.help_labels):
             self.assertTrue(label.wordWrap())
             self.assertGreater(label.width(), 0)
@@ -147,7 +149,17 @@ class LanguageGuiTests(unittest.TestCase):
             needed = label.heightForWidth(label.width())
             if needed >= 0:
                 self.assertGreaterEqual(label.height() + 2, needed, label.text())
-        for button in (win.reset_button, win.undo_button, win.pause_button):
+        from PySide6.QtGui import QFontMetrics
+        plaque = win.selected_info
+        self.assertTrue(plaque.isVisible())
+        self.assertTrue(win.board.rect().contains(plaque.geometry()))
+        target, flags, text, text_font = plaque.text_layout()
+        actual = QFontMetrics(text_font).boundingRect(target, flags, text)
+        self.assertLessEqual(actual.height(), target.height() + 2)
+        self.assertLessEqual(actual.width(), target.width() + 2)
+        self.assertEqual(plaque.toolTip(), plaque.text())
+        for button in (win.reset_button, win.undo_button, win.pause_button,
+                       win.hint_button, win.clear_hint_button):
             self.assertGreaterEqual(button.width(), button.minimumSizeHint().width())
 
     def test_long_english_selection_and_record_fit_sidebar(self):

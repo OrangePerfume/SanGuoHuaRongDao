@@ -9,20 +9,23 @@ from PySide6.QtCore import (
     QSettings, QSignalBlocker, QStandardPaths,
 )
 from PySide6.QtGui import (
-    QBrush, QColor, QFont, QIcon, QKeySequence, QLinearGradient,
+    QBrush, QColor, QFont, QFontMetrics, QIcon, QKeySequence, QLinearGradient,
     QAction, QActionGroup, QPainter, QPainterPath, QPen, QPixmap, QShortcut,
 )
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QFrame, QHBoxLayout, QLabel, QMainWindow, QMessageBox,
     QMenu, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
+    QDialog, QDialogButtonBox, QFormLayout, QSlider,
 )
 
+from . import __version__
 from .core import (BOARD_W, BOARD_H, PIECES, display_hint_rectangles,
                    occupied_by, shifted_group, target_for_click)
 from .model import GameModel
 from .hint import NextMove, next_move, format_hint
 from .motion import ANIMATION_DURATIONS_MS, MotionTrack
 from .records import RecordStore
+from .theme import board_layout, plaque_geometry, normalize_dimming
 from .i18n import LANGUAGES, HELP_IDS, DEFAULT_LANGUAGE, normalize_language, piece_name, selected_names, tr
 
 ASSETS = Path(__file__).resolve().parent / "assets"
@@ -94,11 +97,11 @@ class BoardWidget(QWidget):
         self.language = DEFAULT_LANGUAGE
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMouseTracking(True)
-        self.setMinimumSize(500, 600)
+        self.setMinimumSize(500, 520)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._images = [QPixmap(str(ASSETS / "portraits" / f"{name}.png")) for name in PORTRAITS]
         self._board = QPixmap(str(ASSETS / "wood_board.jpg"))
-        self._dark = QPixmap(str(ASSETS / "wood_dark.jpg"))
+        self.selection_plaque = None
         self._selected: set[int] = set()
         self.solution_hint: NextMove | None = None
         # 仅在主动选择目标时显示绿色完整棋子落点；移动成功后不再残留。
@@ -123,11 +126,18 @@ class BoardWidget(QWidget):
 
     def _layout(self) -> tuple[float, float, float]:
         # 棋盘主体为 4×5；保留上方标题和下方出口铭牌。
-        side = min((self.width() - 96) / 4, (self.height() - 142) / 5)
-        side = max(55.0, side)
-        left = (self.width() - side * 4) / 2
-        top = (self.height() - side * 5) / 2 + 6
-        return left, top, side
+        return board_layout(self.width(), self.height(), self.language)
+
+    def position_selection_plaque(self) -> None:
+        plaque = self.selection_plaque
+        if plaque is None:
+            return
+        plaque.setGeometry(*plaque_geometry(self.width(), self.height(), self.language))
+        plaque.raise_()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self.position_selection_plaque()
 
     _PIECE_INSET = 3.0
 
@@ -257,6 +267,7 @@ class BoardWidget(QWidget):
 
     def set_language(self, language: str) -> None:
         self.language = normalize_language(language)
+        self.position_selection_plaque()
         # A language change must not reopen hints hidden by keyboard movement.
         self.selection_changed.emit(selected_names(self.language, tuple(sorted(self._selected))))
         self.update()
@@ -320,8 +331,10 @@ class BoardWidget(QWidget):
         painter.setPen(QPen(c("#F3C878" if selected else "#C79656", 230), 1.5))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRoundedRect(rect.adjusted(2.1, 2.1, -2.1, -2.1), 7, 7)
-        # 选中角标
+        # Gold rim, no pulsing or flashing; selection stays separate from hints.
         if selected:
+            painter.setPen(QPen(c('#F8BD36'), 3))
+            painter.drawRoundedRect(rect.adjusted(1.5, 1.5, -1.5, -1.5), 8, 8)
             painter.setPen(QPen(c("#FFF1B2"), 2.5))
             for sx in [1, -1]:
                 for sy in [1, -1]:
@@ -335,9 +348,7 @@ class BoardWidget(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
-        # 整体背景由深木板和边缘光感组成。
-        image_fill(painter, self._dark, QRectF(self.rect()))
-        painter.fillRect(self.rect(), c("#26170F", 105))
+        # Keep the battlefield visible around the independently painted board.
         x0, y0, unit = self._layout()
         frame = QRectF(x0-24, y0-24, unit*4+48, unit*5+48)
         painter.setBrush(c("#120B07", 160))
@@ -362,8 +373,12 @@ class BoardWidget(QWidget):
             painter.drawLine(QPointF(x0,py),QPointF(x0+4*unit,py))
         # 上方标题牌
         title_rect = QRectF(x0, max(8,y0-66), unit*4, 31)
+        plaque_rect = title_rect.adjusted(-10, -5, 10, 8)
+        painter.setBrush(c('#432415'))
+        painter.setPen(QPen(c('#E2B76D'), 2.5))
+        painter.drawRoundedRect(plaque_rect, 10, 10)
         painter.setPen(c("#F1D7A3"))
-        painter.setFont(font(15,True))
+        painter.setFont(font(13 if self.language == 'en' else 15, True))
         painter.drawText(title_rect, Qt.AlignmentFlag.AlignCenter, tr(self.language, "board_title"))
         # 底部出口：两格宽位置
         exit_rect = QRectF(x0+unit, y0+5*unit+12, 2*unit, 27)
@@ -396,7 +411,7 @@ class BoardWidget(QWidget):
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.setPen(QPen(c('#2F1C12'), 6))
             painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 9, 9)
-            painter.setPen(QPen(c('#FFD66B'), 3))
+            painter.setPen(QPen(c('#FFD66B'), 3, Qt.PenStyle.DashLine))
             painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 9, 9)
         if self.game.paused:
             painter.fillRect(board_rect,c("#120B08",188))
@@ -545,15 +560,101 @@ class BoardWidget(QWidget):
         event.ignore()
 
 
+class SelectionPlaque(QLabel):
+    """Compact red-and-gold text plaque; English is never letter-stacked."""
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.language = DEFAULT_LANGUAGE
+        self.names = ''
+        self.setWordWrap(True)
+        self.setFont(font(10, True))
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
+    def set_selection(self, language, names):
+        self.language, self.names = language, names
+        self.setText(tr(language, 'selection_prefix', names=names))
+        self.setToolTip(self.text())
+        self.setAccessibleName(self.text())
+        self.update()
+
+    def display_text(self) -> str:
+        heading = tr(self.language, 'selection_heading')
+        if self.language != 'en' and len(self.names) <= 3:
+            return '\n'.join(heading) + '\n\n' + '\n'.join(self.names)
+        # Full names remain accessible and available as a tooltip. Limit only
+        # the painted multi-selection text to keep the board area spacious.
+        names = self.names.split(' · ', 1)[0] if len(self.names) > 22 else self.names
+        return heading + '\n\n' + names
+
+    def text_layout(self):
+        target = self.rect().adjusted(10, 12, -10, -12)
+        flags = Qt.AlignmentFlag.AlignCenter.value | Qt.TextFlag.TextWordWrap.value
+        text = self.display_text()
+        point = 15 if self.language != 'en' and len(self.names) <= 3 else 11
+        while point > 8:
+            measured = QFontMetrics(font(point, True)).boundingRect(target, flags, text)
+            if measured.height() <= target.height() and measured.width() <= target.width():
+                break
+            point -= 1
+        return target, flags, text, font(point, True)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        active = self.names != tr(self.language, 'selection_none')
+        rect = QRectF(self.rect()).adjusted(3, 3, -3, -3)
+        grad = QLinearGradient(rect.topLeft(), rect.bottomRight())
+        grad.setColorAt(0, c('#AD351B' if active else '#594536'))
+        grad.setColorAt(1, c('#68190D' if active else '#34271F'))
+        painter.setBrush(grad)
+        painter.setPen(QPen(c('#F4C361' if active else '#A58B67'), 2))
+        painter.drawRoundedRect(rect, 12, 12)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(c('#D89F4B'), 1))
+        painter.drawRoundedRect(rect.adjusted(5, 5, -5, -5), 8, 8)
+        painter.setPen(c('#F5D9A0'))
+        target, flags, text, text_font = self.text_layout()
+        painter.setFont(text_font)
+        painter.drawText(target, flags, text)
+        painter.end()
+
+
 class TextureBackground(QWidget):
     def __init__(self,parent=None):
         super().__init__(parent)
-        self._wood=QPixmap(str(ASSETS/'wood_dark.jpg'))
+        self._scene = QPixmap(str(ASSETS/'red_cliffs.jpg'))
+        self._wood = QPixmap(str(ASSETS/'wood_dark.jpg'))
+        self.dim = 22
+        self.board = None
+        self.panel = None
 
     def paintEvent(self,event) -> None:
         p=QPainter(self)
-        image_fill(p,self._wood,QRectF(self.rect()))
-        p.fillRect(self.rect(),c('#130C08',100))
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        if self._scene.isNull():
+            image_fill(p, self._wood, QRectF(self.rect()))
+        else:
+            # Anchor the two flags in the gap beside the board. Keep the CG's
+            # original aspect ratio and fade to dark behind the controls.
+            p.fillRect(self.rect(), c('#21130D'))
+            w, h = self.width(), self.height()
+            scene_w = max(w * .82, h * self._scene.width() / self._scene.height())
+            scene_h = scene_w * self._scene.height() / self._scene.width()
+            anchor = w * .58
+            if self.board is not None and self.panel is not None:
+                bx, _, cell = self.board._layout()
+                edge = self.board.x() + bx + 4 * cell + 24
+                anchor = (edge + self.panel.x()) / 2
+            left = min(0.0, anchor - .70 * scene_w)
+            right = left + scene_w
+            p.drawPixmap(QRectF(left, (h - scene_h) / 2, scene_w, scene_h), self._scene,
+                         QRectF(self._scene.rect()))
+            if right < w:
+                fade = QLinearGradient(QPointF(right - 90, 0), QPointF(right, 0))
+                fade.setColorAt(0, c('#21130D', 0))
+                fade.setColorAt(1, c('#21130D'))
+                p.fillRect(QRectF(right - 90, 0, 90, h), fade)
+        p.fillRect(self.rect(),c('#130C08',round(self.dim * 255 / 100)))
         p.end()
 
 
@@ -616,6 +717,7 @@ class MainWindow(QMainWindow):
         self.animation_speed = str(self.settings.value('game/animation_speed', 'normal'))
         if self.animation_speed not in ANIMATION_DURATIONS_MS:
             self.animation_speed = 'normal'
+        self.background_dim = normalize_dimming(self.settings.value('ui/background_dim', 22))
         self.setWindowTitle(tr(self.language, 'window_title'))
         self.setWindowIcon(QIcon(str(ASSETS/'icon.png')))
         self.setMinimumSize(990,700)
@@ -637,6 +739,8 @@ class MainWindow(QMainWindow):
 
     def _init_ui(self) -> None:
         root=TextureBackground()
+        self.background = root
+        root.dim = self.background_dim
         self.setCentralWidget(root)
         page=QVBoxLayout(root)
         page.setContentsMargins(23,12,23,14)
@@ -647,23 +751,18 @@ class MainWindow(QMainWindow):
         title=QLabel(tr(self.language, 'main_title'))
         self.title_label = title
         title.setFont(font(29,True))
-        wrap_to_available_width(title)
-        title.setStyleSheet('color:#F6D9A2;')
+        title.setWordWrap(False)
+        title.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        title.setStyleSheet('color:#F6D9A2; background:rgba(33,17,12,130); border-radius:6px;')
         subtitle=QLabel(tr(self.language, 'subtitle'))
         self.subtitle_label = subtitle
         subtitle.setFont(font(11))
-        wrap_to_available_width(subtitle)
-        subtitle.setStyleSheet('color:#D3AE7D; padding-top:2px;')
+        subtitle.setWordWrap(False)
+        subtitle.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        subtitle.setStyleSheet('color:#F2D3A1; background:rgba(33,17,12,130); padding-top:2px;')
         titles.addWidget(title)
         titles.addWidget(subtitle)
         titlebar.addLayout(titles, 1)
-        edition=QLabel(tr(self.language, 'edition'))
-        self.edition_label = edition
-        edition.setWordWrap(True)
-        edition.setMaximumWidth(230)
-        edition.setFont(font(11,True))
-        edition.setStyleSheet('color:#E7C999; background:#50301D; border:1px solid #9E7147; border-radius:11px; padding:10px 14px;')
-        titlebar.addWidget(edition)
         self.language_button = QPushButton(root)
         self.language_button.setObjectName('languageButton')
         self.language_button.setMinimumHeight(38)
@@ -696,6 +795,14 @@ class MainWindow(QMainWindow):
             self.language_actions[locale] = action
         self.language_button.setMenu(self.language_menu)
         titlebar.addWidget(self.language_button)
+        self.settings_button = dark_button(tr(self.language, 'settings'), '#50301D', root)
+        self.about_button = dark_button(tr(self.language, 'about'), '#50301D', root)
+        for button in (self.settings_button, self.about_button):
+            button.setMinimumHeight(38)
+            button.setFont(font(10, True))
+            titlebar.addWidget(button)
+        self.settings_button.clicked.connect(self._open_settings)
+        self.about_button.clicked.connect(self._open_about)
         page.addLayout(titlebar)
         main=QHBoxLayout()
         main.setSpacing(17)
@@ -704,6 +811,9 @@ class MainWindow(QMainWindow):
         self.board.move_requested.connect(self._make_move)
         self.board.group_move_requested.connect(self._make_group_move)
         self.board.selection_changed.connect(self._on_selection_changed)
+        self.selected_info = SelectionPlaque(self.board)
+        self.board.selection_plaque = self.selected_info
+        self.selected_info.set_selection(self.language, tr(self.language, 'selection_none'))
         main.addWidget(self.board,5)
         side=ParchmentPanel()
         # 外层侧栏可滚动：极小窗口/高 DPI 下即便控制区本身变高，
@@ -715,7 +825,7 @@ class MainWindow(QMainWindow):
         self.side_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.side_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.side_scroll.setMinimumWidth(400 if self.language == "en" else 300)
-        self.side_scroll.setMaximumWidth(400)
+        self.side_scroll.setMaximumWidth(430)
         self.side_scroll.setStyleSheet('''
             QScrollArea#sideScroll { background:transparent; border:none; }
             QScrollBar:vertical { background:#50321E; width:11px; }
@@ -727,78 +837,124 @@ class MainWindow(QMainWindow):
         side_layout=QVBoxLayout(side)
         self.side_layout = side_layout
         side_layout.setContentsMargins(27,24,27,22)
-        side_layout.setSpacing(12)
+        side_layout.setSpacing(8)
         header=QLabel(tr(self.language, 'chapter_title'))
         self.chapter_header = header
         header.setAlignment(Qt.AlignmentFlag.AlignCenter)
         header.setFont(font(24,True))
         wrap_to_available_width(header)
         header.setStyleSheet('color:#532C1C; background:transparent;')
-        side_layout.addWidget(header)
+
         tagline=QLabel(tr(self.language, 'chapter_subtitle'))
         self.tagline_label = tagline
         tagline.setAlignment(Qt.AlignmentFlag.AlignCenter)
         tagline.setFont(font(11,True))
         wrap_to_available_width(tagline)
         tagline.setStyleSheet('color:#885B3F; background:transparent;')
-        side_layout.addWidget(tagline)
+
         line=QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
         line.setStyleSheet('color:#B89360; background:#B89360;')
-        side_layout.addWidget(line)
+
         info=QLabel(tr(self.language, 'description'))
         self.intro_label = info
         info.setWordWrap(True)
         wrap_to_available_width(info)
         info.setFont(font(12))
         info.setStyleSheet('color:#5C3927; background:transparent; line-height:1.5;')
-        side_layout.addWidget(info)
+
         progress=QLabel(tr(self.language, 'progress'))
         self.progress_title_label = progress
         progress.setFont(font(13,True))
         wrap_to_available_width(progress)
-        progress.setStyleSheet('color:#62402B; background:transparent; padding-top:7px;')
-        side_layout.addWidget(progress)
+        progress.setStyleSheet('color:#62402B; background:transparent;')
+        progress_card, progress_layout = self._section_card(side)
+        progress_layout.addWidget(progress)
         metrics=QHBoxLayout()
         metrics.setSpacing(12)
         self.steps_label=self._metric(tr(self.language, 'moves'),'0')
         self.time_label=self._metric(tr(self.language, 'time'),'00:00')
         metrics.addWidget(self.steps_label.parentWidget())
         metrics.addWidget(self.time_label.parentWidget())
-        side_layout.addLayout(metrics)
+        progress_layout.addLayout(metrics)
         self.best_label=QLabel()
         self.best_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.best_label.setWordWrap(True)
         wrap_to_available_width(self.best_label)
         self.best_label.setFont(font(10,True))
         self.best_label.setStyleSheet('color:#775136; background:transparent;')
-        side_layout.addWidget(self.best_label)
+        progress_layout.addWidget(self.best_label)
+        side_layout.addWidget(progress_card)
         controls=QLabel(tr(self.language, 'controls'))
         self.controls_label = controls
         controls.setFont(font(13,True))
         wrap_to_available_width(controls)
-        controls.setStyleSheet('color:#62402B; background:transparent; padding-top:9px;')
-        side_layout.addWidget(controls)
+        controls.setStyleSheet('color:#62402B; background:transparent;')
+        action_card, action_layout = self._section_card(side)
+        action_layout.addWidget(controls)
         self.reset_button=dark_button(tr(self.language, 'restart'),'#396751',side,'restart')
         self.undo_button=dark_button(tr(self.language, 'undo'),'#365D7B',side,'undo')
         self.pause_button=dark_button(tr(self.language, 'pause'),'#654D6B',side,'pause')
-        for button in (self.reset_button,self.undo_button,self.pause_button):
-            side_layout.addWidget(button)
+        action_row = QHBoxLayout()
+        action_row.setSpacing(8)
+        for button in (self.undo_button,self.pause_button):
+            button.setMinimumHeight(44)
+            button.setFont(font(10, True))
+            button.setIconSize(QSize(18, 18))
+            button.setStyleSheet(button.styleSheet().replace('padding:7px 13px;', 'padding:5px 6px;'))
+            action_row.addWidget(button, 1)
+        self.reset_button.setMinimumHeight(44)
+        action_layout.addLayout(action_row)
+        action_layout.addWidget(self.reset_button)
+        side_layout.addWidget(action_card)
         self.reset_button.clicked.connect(self._restart)
         self.undo_button.clicked.connect(self._undo)
         self.pause_button.clicked.connect(self._pause)
-        self.hint_button = dark_button(tr(self.language, 'solution_button'), '#79532E', side)
+        self.hint_card = QFrame(side)
+        self.hint_card.setObjectName('hintCard')
+        self.hint_card.setStyleSheet('QFrame#hintCard {background:#F8E9CB; border:1px solid #C79B52; border-radius:10px;}')
+        card_layout = QVBoxLayout(self.hint_card)
+        card_layout.setContentsMargins(9, 8, 9, 9)
+        card_layout.setSpacing(6)
+        self.hint_heading = QLabel()
+        self.hint_heading.setFont(font(12, True))
+        wrap_to_available_width(self.hint_heading)
+        self.hint_heading.setStyleSheet('color:#63402B; background:transparent;')
+        card_layout.addWidget(self.hint_heading)
+        hint_row = QHBoxLayout()
+        self.hint_portrait = QLabel()
+        self.hint_portrait.setFixedSize(58, 58)
+        self.hint_portrait.setStyleSheet('border:1px solid #C79B52; border-radius:5px; background:#D9B47E;')
+        self.hint_message = QLabel()
+        wrap_to_available_width(self.hint_message)
+        self.hint_message.setFont(font(10, True))
+        self.hint_message.setStyleSheet('color:#895017; background:transparent;')
+        self.hint_message.setTextFormat(Qt.TextFormat.PlainText)
+        hint_row.addWidget(self.hint_portrait)
+        hint_row.addWidget(self.hint_message, 1)
+        card_layout.addLayout(hint_row)
+        self.hint_button = dark_button(tr(self.language, 'solution_button'), '#79532E', self.hint_card)
         self.hint_button.setObjectName('nextMoveHint')
-        self.hint_button.setMinimumHeight(42)
-        self.hint_button.setFont(font(11, True))
-        self.hint_button.clicked.connect(self._toggle_hint)
-        side_layout.addWidget(self.hint_button)
+        self.clear_hint_button = dark_button(tr(self.language, 'solution_clear'), '#A5845B', self.hint_card)
+        for button in (self.hint_button, self.clear_hint_button):
+            button.setMinimumHeight(39)
+            button.setFont(font(10, True))
+            button.setStyleSheet(button.styleSheet().replace('padding:7px 13px;', 'padding:5px 6px;'))
+        self.hint_button.clicked.connect(self._request_hint)
+        self.clear_hint_button.clicked.connect(self._dismiss_hint)
+        hint_actions = QHBoxLayout()
+        hint_actions.setSpacing(6)
+        hint_actions.addWidget(self.hint_button, 1)
+        hint_actions.addWidget(self.clear_hint_button, 1)
+        card_layout.addLayout(hint_actions)
+        side_layout.addWidget(self.hint_card)
         speed_title = QLabel(tr(self.language, 'speed_heading'))
         self.speed_title_label = speed_title
         speed_title.setFont(font(11, True))
         wrap_to_available_width(speed_title)
-        speed_title.setStyleSheet('color:#62402B; background:transparent; padding-top:7px;')
-        side_layout.addWidget(speed_title)
+        speed_title.setStyleSheet('color:#62402B; background:transparent;')
+        speed_row = QHBoxLayout()
+        speed_row.addWidget(speed_title, 1)
         self.speed_combo = QComboBox(side)
         self.speed_combo.setObjectName('animationSpeed')
         self.speed_combo.setFont(font(11))
@@ -814,14 +970,15 @@ class MainWindow(QMainWindow):
                                         selection-background-color:#C59B6C;}
         """)
         self.speed_combo.currentIndexChanged.connect(self._change_animation_speed)
-        side_layout.addWidget(self.speed_combo)
-        self.selected_info=QLabel(tr(self.language, 'selection_prefix', names=tr(self.language, 'selection_none')))
-        self.selected_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.selected_info.setWordWrap(True)
-        wrap_to_available_width(self.selected_info)
-        self.selected_info.setFont(font(11))
-        self.selected_info.setStyleSheet('color:#714C37; background:transparent; padding-top:6px;')
-        side_layout.addWidget(self.selected_info)
+        self.speed_combo.setMinimumWidth(100)
+        speed_row.addWidget(self.speed_combo, 1)
+        side_layout.addLayout(speed_row)
+        self.help_toggle = QPushButton(side)
+        self.help_toggle.setCheckable(True)
+        self.help_toggle.setMinimumHeight(36)
+        self.help_toggle.setFont(font(11, True))
+        self.help_toggle.setStyleSheet('QPushButton { background:#F3DFC1; color:#54341E; border:1px solid #C59B6C; border-radius:8px; padding:6px; }')
+        side_layout.addWidget(self.help_toggle)
         # 玩法提示作为独立的可滚动区域：低分辨率、高 DPI 和窄侧栏下
         # 不会再依赖 QLabel 被压缩后的固定高度，亦不会裁切最后几行说明。
         self.help_scroll = QScrollArea(side)
@@ -856,6 +1013,9 @@ class MainWindow(QMainWindow):
         wrap_to_available_width(help_heading)
         help_heading.setStyleSheet('color:#593A27; background:transparent;')
         help_layout.addWidget(help_heading)
+        # Keep context available without duplicating the large board title in the panel.
+        for context in (header, tagline, line, info):
+            help_layout.addWidget(context)
         # 使用短句和分组说明；布局负责换行，长文字可向下滚动查看。
         self.help_labels = []
         self.help_titles = []
@@ -881,15 +1041,20 @@ class MainWindow(QMainWindow):
         self._index_help_sections()
         self.help_scroll.setWidget(help_content)
         side_layout.addWidget(self.help_scroll, 1)
+        self.help_toggle.toggled.connect(self.set_help_expanded)
+        self.help_scroll.hide()
+        side_layout.addStretch(1)
+        self.help_spacer_index = side_layout.count() - 1
         self.side_scroll.setWidget(side)
         main.addWidget(self.side_scroll,3)
+        root.board, root.panel = self.board, self.side_scroll
         page.addLayout(main,1)
         foot=QLabel(tr(self.language, 'footer'))
         self.footer_label = foot
         foot.setFont(font(10))
         foot.setWordWrap(True)
         foot.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
-        foot.setStyleSheet('color:#D7B88C; padding:6px 4px;')
+        foot.setStyleSheet('color:#F6D9A2; background:rgba(38,21,13,180); border-radius:6px; padding:5px 8px;')
         page.addWidget(foot)
         QShortcut(QKeySequence('Ctrl+Z'),self,activated=self._undo)
         QShortcut(QKeySequence('R'),self,activated=self._restart)
@@ -905,7 +1070,7 @@ class MainWindow(QMainWindow):
         }
 
     def _on_selection_changed(self, names: str) -> None:
-        self.selected_info.setText(tr(self.language, 'selection_prefix', names=names))
+        self.selected_info.set_selection(self.language, names)
 
     def set_language(self, language: str, persist: bool = True) -> None:
         """Translate all UI surfaces in place without resetting the game or timers."""
@@ -921,9 +1086,11 @@ class MainWindow(QMainWindow):
         t = lambda key, **kwargs: tr(language, key, **kwargs)
         self.setWindowTitle(t('window_title'))
         self.title_label.setText(t('main_title'))
-        self.title_label.setFont(font(23 if language == 'en' else 29, True))
+        self.title_label.setFont(font(20 if language == 'en' else 28, True))
         self.subtitle_label.setText(t('subtitle'))
-        self.edition_label.setText(t('edition'))
+        self.subtitle_label.setToolTip(t('subtitle'))
+        self.settings_button.setText(t('settings'))
+        self.about_button.setText(t('about'))
         self.language_button.setText(t('language_button'))
         self.language_button.setToolTip(t('language_tooltip'))
         self.language_actions[language].setChecked(True)
@@ -933,8 +1100,8 @@ class MainWindow(QMainWindow):
         # its 500px minimum (990 - 46 margins - 17 spacing - 400 = 527px).
         # Revert to the original flexible widths when switching back to Chinese.
         self.side_scroll.setMinimumWidth(400 if language == 'en' else 300)
-        margin = 20 if language == 'en' else 27
-        self.side_layout.setContentsMargins(margin, 24, margin, 22)
+        margin = 15 if language == 'en' else 18
+        self.side_layout.setContentsMargins(margin, 15, margin, 15)
         help_margin = 10 if language == 'en' else 13
         self.help_layout.setContentsMargins(help_margin, 11, help_margin, 12)
         self.tagline_label.setText(t('chapter_subtitle'))
@@ -946,6 +1113,9 @@ class MainWindow(QMainWindow):
         self.reset_button.setText(t('restart'))
         self.undo_button.setText(t('undo'))
         self.hint_button.setToolTip(t('solution_tooltip'))
+        self.hint_heading.setText(t('solution_heading'))
+        self.clear_hint_button.setText(t('solution_clear'))
+        self.set_help_expanded(self.help_toggle.isChecked())
         self.speed_title_label.setText(t('speed_heading'))
         self.speed_combo.setToolTip(t('speed_tooltip'))
         with QSignalBlocker(self.speed_combo):
@@ -966,6 +1136,7 @@ class MainWindow(QMainWindow):
         self.side_scroll.widget().updateGeometry()
         self.help_scroll.updateGeometry()
         self.side_scroll.updateGeometry()
+        self.background.update()
 
     def _change_animation_speed(self, _index: int) -> None:
         speed = self.speed_combo.currentData()
@@ -976,6 +1147,15 @@ class MainWindow(QMainWindow):
         self.settings.setValue('game/animation_speed', speed)
         self.settings.sync()
         self.board.setFocus()
+
+    def _section_card(self, parent: QWidget) -> tuple[QFrame, QVBoxLayout]:
+        card = QFrame(parent)
+        card.setObjectName('sectionCard')
+        card.setStyleSheet('QFrame#sectionCard {background:rgba(255,241,211,165); border:1px solid #D7B883; border-radius:10px;}')
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(8, 7, 8, 8)
+        layout.setSpacing(6)
+        return card, layout
 
     def _metric(self, caption: str, value: str) -> QLabel:
         card=QFrame(self)
@@ -1029,23 +1209,102 @@ class MainWindow(QMainWindow):
         active = self._hint_snapshot is not None
         self.hint_button.setEnabled(not self.game.paused and not self.game.finished
                                     and not self.board._motion.starts)
-        self.hint_button.setText(tr(self.language, 'solution_clear' if active else 'solution_button'))
-        text = format_hint(self.language, self._next_hint) if active else tr(self.language, 'footer')
-        if self.footer_label.text() != text:
-            self.footer_label.setText(text)
-        self.board.solution_hint = self._next_hint if active else None
+        self.hint_button.setText(tr(self.language, 'solution_button'))
+        self.clear_hint_button.setEnabled(active)
+        text = format_hint(self.language, self._next_hint) if active else tr(self.language, 'solution_idle')
+        if self.hint_message.text() != text:
+            self.hint_message.setText(text)
+        hint = self._next_hint if active else None
+        self.hint_portrait.setVisible(hint is not None)
+        if hint is not None and self.hint_portrait.property('pieceIndex') != hint.piece:
+            pixmap = self.board._images[hint.piece].scaled(56, 56, Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                                                         Qt.TransformationMode.SmoothTransformation)
+            self.hint_portrait.setPixmap(pixmap.copy((pixmap.width()-56)//2, (pixmap.height()-56)//2, 56, 56))
+            self.hint_portrait.setProperty('pieceIndex', hint.piece)
+        self.board.solution_hint = hint
         self.board.update()
 
-    def _toggle_hint(self) -> None:
+    def _request_hint(self) -> None:
         if self.game.paused or self.game.finished or self.board._motion.starts:
             return
-        if self._hint_snapshot is not None:
-            self._clear_hint()
-        else:
-            self._next_hint = next_move(self.game.positions)
-            self._hint_snapshot = self.game.positions
+        self._next_hint = next_move(self.game.positions)
+        self._hint_snapshot = self.game.positions
         self._refresh_hint()
         self.board.setFocus()
+
+    def _dismiss_hint(self) -> None:
+        self._clear_hint()
+        self._refresh_hint()
+        self.board.setFocus()
+
+    def set_help_expanded(self, expanded: bool) -> None:
+        with QSignalBlocker(self.help_toggle):
+            self.help_toggle.setChecked(expanded)
+        self.help_toggle.setText(tr(self.language, 'help_title') + ('  ▴' if expanded else '  ▾'))
+        self.help_scroll.setVisible(expanded)
+        self.side_layout.setStretch(self.help_spacer_index, 0 if expanded else 1)
+        self.side_layout.invalidate()
+
+    def _open_settings(self) -> None:
+        t = lambda key: tr(self.language, key)
+        dialog = QDialog(self)
+        dialog.setWindowTitle(t('settings'))
+        layout = QFormLayout(dialog)
+        language = QComboBox(dialog)
+        for key, name in LANGUAGES:
+            language.addItem(name, key)
+        language.setCurrentIndex(language.findData(self.language))
+        speed = QComboBox(dialog)
+        for key in ('slow', 'normal', 'fast'):
+            speed.addItem(t('speed_' + key), key)
+        speed.setCurrentIndex(speed.findData(self.animation_speed))
+        dim = QSlider(Qt.Orientation.Horizontal, dialog)
+        dim.setRange(0, 65)
+        dim.setValue(self.background_dim)
+        layout.addRow(t('language_heading'), language)
+        layout.addRow(t('speed_heading'), speed)
+        layout.addRow(t('background_dim'), dim)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, dialog)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText(t('dialog_ok'))
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText(t('confirm_no'))
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addRow(buttons)
+        if self._exec_preferences_dialog(dialog) == QDialog.DialogCode.Accepted:
+            self.background_dim = dim.value()
+            self.background.dim = self.background_dim
+            self.background.update()
+            self.settings.setValue('ui/background_dim', self.background_dim)
+            self.speed_combo.setCurrentIndex(self.speed_combo.findData(speed.currentData()))
+            self.set_language(language.currentData())
+            self.settings.sync()
+
+    def _open_about(self) -> None:
+        t = lambda key: tr(self.language, key)
+        dialog = QDialog(self)
+        dialog.setWindowTitle(t('about'))
+        layout = QVBoxLayout(dialog)
+        title = QLabel(t('main_title') + ' · V' + __version__)
+        title.setFont(font(16, True))
+        layout.addWidget(title)
+        layout.addWidget(QLabel(t('edition')))
+        layout.addWidget(QLabel('MIT License · OrangePerfume'))
+        link = QLabel('<a href="https://github.com/OrangePerfume/SanGuoHuaRongDao">GitHub · SanGuoHuaRongDao</a>')
+        link.setOpenExternalLinks(True)
+        layout.addWidget(link)
+        button = QPushButton(t('dialog_ok'))
+        button.clicked.connect(dialog.accept)
+        layout.addWidget(button)
+        self._exec_preferences_dialog(dialog)
+
+    def _exec_preferences_dialog(self, dialog: QDialog) -> int:
+        self._restart_confirming = True
+        self._win_timer.stop()
+        try:
+            return dialog.exec()
+        finally:
+            self._restart_confirming = False
+            self._queue_win_dialog()
 
     def _make_move(self,index:int,dx:int,dy:int,count:int) -> None:
         old=self.game.positions[index]
@@ -1148,8 +1407,7 @@ class MainWindow(QMainWindow):
         self._clear_hint()
         self.board.clear_selection()
         self.board.clear_animation()
-        self.selected_info.setText(tr(self.language, 'selection_prefix',
-                                      names=tr(self.language, 'selection_none')))
+        self._on_selection_changed(tr(self.language, 'selection_none'))
         self._update_stats()
         self.board.setFocus()
 

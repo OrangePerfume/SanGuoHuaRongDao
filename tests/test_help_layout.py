@@ -30,6 +30,7 @@ class HelpLayoutQtTests(unittest.TestCase):
         from huarongdao.gui import MainWindow
         win = MainWindow()
         win.set_language('zh-CN', persist=False)
+        win.set_help_expanded(True)
         try:
             for width, height in ((990, 700), (1170, 840)):
                 with self.subTest(size=(width, height)):
@@ -68,6 +69,7 @@ class HelpLayoutQtTests(unittest.TestCase):
         from huarongdao.gui import MainWindow
         win = MainWindow()
         win.set_language('zh-CN', persist=False)
+        win.set_help_expanded(True)
         try:
             win.resize(990,700)
             win.show()

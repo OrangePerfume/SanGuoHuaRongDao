@@ -13,7 +13,7 @@ def smoke_test() -> int:
     app = QApplication([])
     window = None
     try:
-        for path in [ASSETS / 'wood_board.jpg', ASSETS / 'wood_dark.jpg',
+        for path in [ASSETS / 'wood_board.jpg', ASSETS / 'wood_dark.jpg', ASSETS / 'red_cliffs.jpg',
                      *(ASSETS / 'portraits' / f'{name}.png' for name in set(PORTRAITS))]:
             if QPixmap(str(path)).isNull():
                 raise RuntimeError(f'Bundled resource missing: {path}')
@@ -28,18 +28,21 @@ def smoke_test() -> int:
         for language in ('zh-CN', 'zh-TW', 'en'):
             window.set_language(language, persist=False)
             if (window.board.solution_hint != hint
-                    or window.footer_label.text() != format_hint(language, hint)):
+                    or window.hint_message.text() != format_hint(language, hint)):
                 raise RuntimeError(f'Hint translation failed: {language}')
+            window.set_help_expanded(True)
             for width, height in ((990, 700), (1170, 840)):
                 window.resize(width, height)
                 app.processEvents()
                 if window.grab().isNull():
                     raise RuntimeError(f'Window render failed: {language} {width}x{height}')
+                if not window.board.rect().contains(window.selected_info.geometry()):
+                    raise RuntimeError(f'Selection plaque outside board area: {language}')
                 for scroll in (window.side_scroll, window.help_scroll):
                     if (scroll.horizontalScrollBar().maximum() != 0
                             or scroll.widget().width() > scroll.viewport().width()):
                         raise RuntimeError(f'Horizontal overflow: {language} {width}x{height} {scroll.objectName()}')
-        window.hint_button.click()
+        window.clear_hint_button.click()
         if window.board.solution_hint is not None:
             raise RuntimeError('Next-move hint did not clear')
         return 0
