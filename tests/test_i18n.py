@@ -2,6 +2,8 @@
 import string
 import unittest
 
+from huarongdao import __version__
+
 from huarongdao.i18n import (
     DEFAULT_LANGUAGE, HELP_IDS, LANGUAGES, PIECE_IDS, STRINGS,
     normalize_language, piece_name, selected_names, tr,
@@ -55,7 +57,7 @@ class I18nTests(unittest.TestCase):
             self.assertIn('12', tr(locale, 'win_message', steps=12, time='00:34'))
             self.assertTrue(tr(locale, 'board_exit'))
             self.assertTrue(tr(locale, 'board_pause'))
-            self.assertIn('0.4.0', tr(locale, 'window_title'))
+            self.assertIn(__version__, tr(locale, 'window_title'))
 
     def test_translations_do_not_modify_core_rules(self):
         from huarongdao.core import PIECES

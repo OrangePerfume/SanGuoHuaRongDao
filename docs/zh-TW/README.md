@@ -1,12 +1,12 @@
 [简体中文](../../README.md) · [繁體中文](../../docs/zh-TW/README.md) · [English](../../docs/en/README.md)
 
-# 三國華容道 · 橫刀立馬（V0.4.0）
+# 三國華容道 · 橫刀立馬（V0.5.0）
 
 [![Windows CI](https://github.com/OrangePerfume/SanGuoHuaRongDao/actions/workflows/ci.yml/badge.svg)](https://github.com/OrangePerfume/SanGuoHuaRongDao/actions/workflows/ci.yml) [![MIT License](https://img.shields.io/badge/license-MIT-yellow.svg)](../../LICENSE)
 
 這是一款適用於 **Windows 10 / 11**、完全離線的單機華容道遊戲。保留經典「橫刀立馬」玩法，搭配彩色木質棋盤與三國人物插畫。懷舊的是遊戲體驗，而不是黑白螢幕。
 
-**版本：0.4.0**。新增遊戲內介面三語切換，支援簡體中文、繁體中文與英文，即時套用並儲存設定。
+**版本：0.5.0**。改善棋子動畫互動，修正通關提示競態與鍵盤焦點導覽問題。
 
 ![由專案素材製作的靜態預覽，非 Windows 實際遊戲截圖](../../PREVIEW.png)
 
@@ -28,7 +28,7 @@
 ## 操作方式
 
 - **滑鼠拖曳**：按住一枚棋子並沿水平或垂直方向拖曳，所有經過的格位皆須合法。
-- **鍵盤**：點選棋子後使用方向鍵或 WASD，每次移動一格。
+- **鍵盤**：點選或使用 Q / E 選取棋子，方向鍵或 WASD 每次移動一格；Tab / Shift+Tab 切換介面焦點。
 - **快捷鍵**：Ctrl+Z 復原、R 重新開始、空白鍵暫停 / 繼續。
 - **步數與計時**：每枚棋子每移動一格計一步；首次有效移動開始計時；過關後儲存本機最佳成績。
 - **點選移動**：點選棋子後，再點選綠色的合法目標空位，棋子會沿合法直線移動；成功後清除選取及提示。
@@ -43,7 +43,7 @@
 
 ## 下載與執行
 
-請至 [GitHub Releases](https://github.com/OrangePerfume/SanGuoHuaRongDao/releases) 下載與版本對應的 `SanGuoHuaRongDao-v0.4.0-win-x64.zip`，完整解壓縮並執行：
+請至 [GitHub Releases](https://github.com/OrangePerfume/SanGuoHuaRongDao/releases) 下載與版本對應的 `SanGuoHuaRongDao-v0.5.0-win-x64.zip`，完整解壓縮並執行：
 
 `SanGuoHuaRongDao.exe`
 

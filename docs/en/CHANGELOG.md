@@ -2,6 +2,14 @@
 
 # Changelog
 
+## V0.5.0 — 2026-11-26
+
+- Fixed hit testing during piece animations by sharing visual geometry with rendering and preserving clickable piece margins (PR #5).
+- Checked both visual and logical vacancy during animation to prevent unintended movement on mouse release.
+- Fixed potential duplicate completion notifications after rapid undo and re-completion; notifications wait for animation completion and are canceled on undo, restart, or window closure.
+- Fixed keyboard focus trapping on the board: Q / E select pieces, Tab / Shift+Tab navigate controls, and arrows / WASD still move pieces.
+- Added regression tests for completion notifications, animation speed, consecutive dragging, multi-selection, undo, and keyboard focus navigation.
+
 ## V0.4.0 — 2026-11-25
 
 - Fixed horizontal overflow in the English sidebar at smaller window sizes and improved wrapping and sidebar width adaptation across all three languages.

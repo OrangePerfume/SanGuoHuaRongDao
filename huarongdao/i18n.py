@@ -5,6 +5,8 @@ for runtime UI content and share one stable set of keys across three locales.
 """
 from __future__ import annotations
 
+from . import __version__
+
 DEFAULT_LANGUAGE = 'zh-CN'
 LANGUAGES = (
     ('zh-CN', '简体中文'),
@@ -16,7 +18,7 @@ HELP_IDS = ('click', 'group', 'hint', 'keyboard', 'shortcuts', 'steps', 'speed')
 
 STRINGS: dict[str, dict[str, str]] = {
     'zh-CN': {
-        'window_title': '三国华容道 · 横刀立马  |  V0.4.0',
+        'window_title': f'三国华容道 · 横刀立马  |  V{__version__}',
         'main_title': '三 国 华 容 道',
         'subtitle': '经典棋局 · 横刀立马     |     一局不急，步步有谋',
         'edition': '原创国风人物棋子  ·  离线单机',
@@ -56,7 +58,7 @@ STRINGS: dict[str, dict[str, str]] = {
         'help.hint.title': '绿色提示',
         'help.hint.body': '按整块棋子占位显示；移动成功后自动清除。',
         'help.keyboard.title': '键盘操作',
-        'help.keyboard.body': '方向键 / WASD 移动选中棋子。',
+        'help.keyboard.body': 'Q / E 切换棋子，方向键 / WASD 移动。Tab / Shift+Tab 切换界面焦点。',
         'help.shortcuts.title': '快捷键',
         'help.shortcuts.body': 'Ctrl+Z 撤销 · Esc 取消选中\nR 重开 · 空格暂停/继续',
         'help.steps.title': '计步与撤销',
@@ -82,7 +84,7 @@ STRINGS: dict[str, dict[str, str]] = {
         'piece_soldier_tile': '兵',
     },
     'zh-TW': {
-        'window_title': '三國華容道 · 橫刀立馬  |  V0.4.0',
+        'window_title': f'三國華容道 · 橫刀立馬  |  V{__version__}',
         'main_title': '三 國 華 容 道',
         'subtitle': '經典棋局 · 橫刀立馬     |     不急不躁，步步為營',
         'edition': '原創國風人物棋子  ·  離線單機',
@@ -122,7 +124,7 @@ STRINGS: dict[str, dict[str, str]] = {
         'help.hint.title': '綠色提示',
         'help.hint.body': '依整塊棋子的占位顯示；成功移動後自動清除。',
         'help.keyboard.title': '鍵盤操作',
-        'help.keyboard.body': '使用方向鍵 / WASD 移動選取的棋子。',
+        'help.keyboard.body': 'Q / E 切換棋子，方向鍵 / WASD 移動。Tab / Shift+Tab 切換介面焦點。',
         'help.shortcuts.title': '快捷鍵',
         'help.shortcuts.body': 'Ctrl+Z 復原 · Esc 取消選取\nR 重開 · 空白鍵暫停/繼續',
         'help.steps.title': '步數與復原',
@@ -148,7 +150,7 @@ STRINGS: dict[str, dict[str, str]] = {
         'piece_soldier_tile': '兵',
     },
     'en': {
-        'window_title': 'Three Kingdoms Klotski · Heng Dao Li Ma  |  V0.4.0',
+        'window_title': f'Three Kingdoms Klotski · Heng Dao Li Ma  |  V{__version__}',
         'main_title': 'THREE KINGDOMS KLOTSKI',
         'subtitle': 'Classic puzzle · Heng Dao Li Ma  |  Every move counts',
         'edition': 'Original character art · Offline game',
@@ -188,7 +190,7 @@ STRINGS: dict[str, dict[str, str]] = {
         'help.hint.title': 'Green hints',
         'help.hint.body': 'A hint shows the whole piece footprint and disappears after a successful move.',
         'help.keyboard.title': 'Keyboard',
-        'help.keyboard.body': 'Use the arrow keys or WASD to move selected pieces.',
+        'help.keyboard.body': 'Q / E select a piece; arrows / WASD move it. Tab / Shift+Tab navigate controls.',
         'help.shortcuts.title': 'Shortcuts',
         'help.shortcuts.body': 'Ctrl+Z undo · Esc deselect\nR restart · Space pause/resume',
         'help.steps.title': 'Moves & undo',

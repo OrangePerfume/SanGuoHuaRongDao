@@ -1,5 +1,5 @@
-V0.4.0 · 语言切换 / 語言切換 / Language switching
+V0.5.0 · 交互与稳定性修复 / 互動與穩定性修正 / Interaction and stability fixes
 
-将 V0.4.0 提交至 main，通过 Windows CI 后创建 v0.4.0 标签。标签触发 Windows EXE 自动构建及 Release；既有版本标签保持不变。
-繁體中文：將 V0.4.0 提交至 main，待 Windows CI 通過後建立 v0.4.0 標籤，自動建置與發行 Windows EXE。
-English: Commit V0.4.0 to main, then create the v0.4.0 tag after Windows CI passes to build and publish the Windows EXE.
+将 V0.5.0 提交至 main，通过 Windows CI 后创建 v0.5.0 标签。标签触发 Windows EXE 自动构建及 Release；既有版本标签保持不变。
+繁體中文：將 V0.5.0 提交至 main，待 Windows CI 通過後建立 v0.5.0 標籤，自動建置與發行 Windows EXE。
+English: Commit V0.5.0 to main, then create the v0.5.0 tag after Windows CI passes to build and publish the Windows EXE.
