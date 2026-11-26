@@ -17,7 +17,8 @@ from PySide6.QtWidgets import (
     QMenu, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
 )
 
-from .core import BOARD_W, PIECES, display_hint_rectangles, occupied_by, shifted_group, target_for_click
+from .core import (BOARD_W, BOARD_H, PIECES, display_hint_rectangles,
+                   occupied_by, shifted_group, target_for_click)
 from .model import GameModel
 from .motion import ANIMATION_DURATIONS_MS, MotionTrack
 from .records import RecordStore
@@ -125,13 +126,20 @@ class BoardWidget(QWidget):
         top = (self.height() - side * 5) / 2 + 6
         return left, top, side
 
-    def _piece_rect(self, index: int, positions: tuple[int, ...] | None = None) -> QRectF:
-        pos = (positions or self.game.positions)[index]
-        x0, y0, unit = self._layout()
+    _PIECE_INSET = 3.0
+
+    def _rect_at(self, index: int, x: float, y: float,
+                 layout: tuple[float, float, float] | None = None) -> QRectF:
+        x0, y0, unit = self._layout() if layout is None else layout
         piece = PIECES[index]
-        x, y = pos % BOARD_W, pos // BOARD_W
-        return QRectF(x0 + x * unit + 3, y0 + y * unit + 3,
-                      piece.w * unit - 6, piece.h * unit - 6)
+        inset = self._PIECE_INSET
+        return QRectF(x0 + x * unit + inset, y0 + y * unit + inset,
+                      piece.w * unit - 2 * inset, piece.h * unit - 2 * inset)
+
+    def _piece_rect(self, index: int, positions: tuple[int, ...] | None = None,
+                    layout: tuple[float, float, float] | None = None) -> QRectF:
+        pos = (self.game.positions if positions is None else positions)[index]
+        return self._rect_at(index, pos % BOARD_W, pos // BOARD_W, layout)
 
     def _hint_rects(self) -> tuple[QRectF, ...]:
         """同方向重叠终点合并为连续矩形，不重复描边或填充。"""
@@ -146,11 +154,42 @@ class BoardWidget(QWidget):
             )
         )
 
+    def _displayed_piece_rect(self, index: int,
+                              layout: tuple[float, float, float] | None = None) -> QRectF:
+        """The current animated rectangle, shared by painting and hit testing."""
+        x, y = self._motion.displayed(index, self.game.positions)
+        return self._rect_at(index, x, y, layout)
+
     def _at(self, point: QPointF) -> int | None:
+        layout = self._layout()
+        rects = [(i, self._displayed_piece_rect(i, layout))
+                 for i in reversed(range(len(PIECES)))]
+        # Actual piece bodies take precedence over any other piece's margin.
+        # In an overlap, the later-painted body is the visible top piece.
+        for index, rect in rects:
+            if rect.contains(point):
+                return index
+        # Restore the original full-cell hit area for a stationary piece;
+        # moving pieces carry the same small margin with their visual position.
+        inset = self._PIECE_INSET
+        for index, rect in rects:
+            area = rect.adjusted(-inset, -inset, inset, inset)
+            if (area.left() <= point.x() < area.right()
+                    and area.top() <= point.y() < area.bottom()):
+                return index
+        return None
+
+    def _empty_target_cell(self, point: QPointF) -> tuple[int, int] | None:
+        """A click destination must be both visually and logically empty."""
         x0, y0, unit = self._layout()
         cx = math.floor((point.x() - x0) / unit)
         cy = math.floor((point.y() - y0) / unit)
-        return occupied_by(self.game.positions, cx, cy)
+        if not (0 <= cx < BOARD_W and 0 <= cy < BOARD_H):
+            return None
+        if (occupied_by(self.game.positions, cx, cy) is not None
+                or self._at(point) is not None):
+            return None
+        return cx, cy
 
     @property
     def animation_duration_ms(self) -> int:
@@ -326,19 +365,16 @@ class BoardWidget(QWidget):
         painter.setFont(font(12,True))
         painter.drawText(exit_rect, Qt.AlignmentFlag.AlignCenter, tr(self.language, "board_exit"))
         # 多选同步动画与多棋子预览；不改变逻辑状态。
+        layout = (x0, y0, unit)
         for i in range(len(PIECES)):
-            rect = self._piece_rect(i)
-            if i in self._motion.starts:
-                grid_x, grid_y = self._motion.displayed(i, self.game.positions)
-                rect = QRectF(x0 + grid_x * unit + 3, y0 + grid_y * unit + 3,
-                              PIECES[i].w * unit - 6, PIECES[i].h * unit - 6)
+            rect = self._displayed_piece_rect(i, layout)
             if self._preview is not None and i in self._preview:
                 ghost = list(self.game.positions)
                 ghost[i] = self._preview[i]
                 painter.setOpacity(0.30)
                 self._draw_piece(painter, i, rect, True)
                 painter.setOpacity(1.0)
-                rect = self._piece_rect(i, tuple(ghost))
+                rect = self._piece_rect(i, tuple(ghost), layout)
             self._draw_piece(painter, i, rect, i in self._selected)
         # 同方向重叠落点先合并，再统一填充和描边，避免中间颜色加深。
         for hint in self._hint_rects():
@@ -392,6 +428,14 @@ class BoardWidget(QWidget):
             self._pressed_index = None
             self._preview = None
             return
+        # A visually vacant but logically occupied destination is not an
+        # empty-cell gesture, even if the board changes before mouse release.
+        if index is None and self._empty_target_cell(event.position()) is None:
+            self._pressed_pos = None
+            self._pressed_index = None
+            self._preview = None
+            self.update()
+            return
         self._pressed_pos = event.position()
         self._pressed_index = index
         self._preview = None
@@ -433,13 +477,13 @@ class BoardWidget(QWidget):
                 self._selected = {self._pressed_index}
                 self._emit_selection()
         elif direction is None and self._selected:
-            # 单击空格：将单选/多选棋子自动移动至点击空格。
-            x0, y0, unit = self._layout()
-            cx = math.floor((event.position().x() - x0)/unit)
-            cy = math.floor((event.position().y() - y0)/unit)
-            move = target_for_click(self.game.positions, tuple(sorted(self._selected)), cx, cy)
-            if move is not None:
-                self._request_move(*move)
+            # Recheck the target: an animation may have moved a visible piece
+            # under the pointer since the press. The core still owns legality.
+            cell = self._empty_target_cell(event.position())
+            if cell is not None:
+                move = target_for_click(self.game.positions, tuple(sorted(self._selected)), *cell)
+                if move is not None:
+                    self._request_move(*move)
         # 仅在实际发生位移后取消选择；无效目标不打断操作。
         if self.game.positions != original:
             self.clear_selection()

@@ -76,6 +76,7 @@ class GuiSmokeTests(unittest.TestCase):
             self.assertEqual(win.game.steps, 2)
             self.assertEqual(board._selected, set())  # 成功移动后不残留选中状态
             self.assertFalse(board._targets_visible)
+            board.clear_animation()  # 以下操作针对动画结束后的棋局
             click(2, 4)  # 重新选择刚移动的小兵
             click(3, 4, Qt.KeyboardModifier.ControlModifier)  # 加选另一名小兵
             self.assertEqual(board._selected, {8, 9})
@@ -151,6 +152,7 @@ class GuiSmokeTests(unittest.TestCase):
             self.assertEqual(board._selected, set())
             self.assertFalse(board._targets_visible)
 
+            board.clear_animation()
             click(1, 4)
             self.assertEqual(board._selected, {8})
             self.assertTrue(board._targets_visible)
@@ -159,11 +161,233 @@ class GuiSmokeTests(unittest.TestCase):
             self.assertEqual(win.game.positions[8], 18)
             self.assertEqual(board._selected, {8})
             self.assertFalse(board._targets_visible)
+            board.clear_animation()
             click(2, 4)  # 再次点击选中棋子可重新查看可达空位
             self.assertTrue(board._targets_visible)
             win._undo()
             self.assertEqual(board._selected, set())
             self.assertFalse(board._targets_visible)
+        finally:
+            win.close()
+
+    def test_animation_hit_testing_uses_visible_position(self):
+        """Fix #4: clicks must follow the visible piece, not its logical destination."""
+        from PySide6.QtCore import QPointF, Qt
+        from huarongdao.gui import MainWindow
+
+        class MouseEvent:
+            def __init__(self, pos, modifiers):
+                self._pos = pos
+                self._modifiers = modifiers
+
+            def button(self):
+                return Qt.MouseButton.LeftButton
+
+            def position(self):
+                return self._pos
+
+            def modifiers(self):
+                return self._modifiers
+
+        win = MainWindow()
+        try:
+            win.resize(1170, 840)
+            win.show()
+            self.app.processEvents()
+            board = win.board
+
+            def point(x, y=4.5):
+                left, top, unit = board._layout()
+                return QPointF(left + x * unit, top + y * unit)
+
+            def click(x, modifiers=Qt.KeyboardModifier.NoModifier):
+                event = MouseEvent(point(x), modifiers)
+                board.mousePressEvent(event)
+                board.mouseReleaseEvent(event)
+
+            win._make_move(8, 1, 0, 1)
+            self.assertEqual(win.game.positions[8], 17)
+            # Freeze a reproducible intermediate frame without waiting for Qt.
+            board._animation.stop()
+            board._motion.set_progress(.25)
+            self.assertEqual(board._at(point(.5)), 8)
+            self.assertIsNone(board._at(point(1.5)))
+            click(1.5)
+            self.assertEqual(board._selected, set())
+            click(.5)
+            self.assertEqual(board._selected, {8})
+            self.assertTrue(board._targets_visible)
+            click(3.5, Qt.KeyboardModifier.ControlModifier)
+            self.assertEqual(board._selected, {8, 9})
+            self.assertEqual(win.game.steps, 1)
+
+            board._motion.set_progress(.75)
+            self.assertIsNone(board._at(point(.5)))
+            self.assertEqual(board._at(point(1.5)), 8)
+            board.resize(560, 640)
+            self.assertEqual(board._at(point(1.5)), 8)
+            self.assertIsNone(board._at(point(.5)))
+
+            # Retarget a still-moving soldier together with another piece.
+            win._make_group_move((8, 9), -1, 0, 1)
+            self.assertEqual(win.game.positions[8:10], (16, 18))
+            board._animation.stop()
+            board._motion.set_progress(.25)
+            self.assertEqual(board._at(point(1.0625)), 8)
+            self.assertEqual(board._at(point(3.25)), 9)
+            win._undo()
+            board._animation.stop()
+            board._motion.set_progress(.4)
+            self.assertEqual(win.game.positions[8:10], (17, 19))
+            self.assertEqual(board._at(board._displayed_piece_rect(8).center()), 8)
+            self.assertEqual(board._at(board._displayed_piece_rect(9).center()), 9)
+            board.clear_animation()
+            self.assertEqual(board._at(point(1.5)), 8)
+            self.assertEqual(board._at(point(3.5)), 9)
+            self.assertIsNone(board._at(point(.5)))
+            self.assertIsNone(board._at(point(-.5)))
+            self.assertEqual(win.game.steps, 1)
+        finally:
+            win.close()
+
+    def test_hit_margin_and_animation_overlap_priority(self):
+        from PySide6.QtCore import QPointF
+        from huarongdao.gui import MainWindow
+
+        win = MainWindow()
+        try:
+            board = win.board
+            board.resize(660, 735)
+            left, top, unit = board._layout()
+
+            def point(x, y=4.5):
+                return QPointF(left + x * unit, top + y * unit)
+
+            # The original occupied cell remains clickable right up to its edge.
+            self.assertEqual(board._at(point(.01)), 8)
+            self.assertEqual(board._at(point(.99)), 8)
+            self.assertIsNone(board._at(point(1.0)))
+            self.assertIsNone(board._at(point(-.01)))
+            # Synthetic overlapping visual rectangles (no model mutation).
+            board._motion.starts = {8: (2.0, 4.0), 9: (2.25, 4.0)}
+            board._motion.targets = dict(board._motion.starts)
+            board._motion.set_progress(.5)
+            self.assertEqual(board._at(point(2.5)), 9)
+            # A lower piece's body must beat the higher piece's margin.
+            self.assertEqual(board._at(point(2.26)), 8)
+            board.clear_animation()
+            self.assertEqual(board._at(point(.5)), 8)
+            self.assertIsNone(board._at(point(1.5)))
+            self.assertEqual(win.game.steps, 0)
+        finally:
+            win.close()
+
+    def test_empty_target_rechecked_during_real_qt_animation(self):
+        from PySide6.QtCore import QPointF, Qt
+        from PySide6.QtTest import QTest
+        from huarongdao.gui import MainWindow
+
+        win = MainWindow()
+        try:
+            win.show()
+            self.app.processEvents()
+            board = win.board
+            for speed in ('slow', 'normal', 'fast'):
+                with self.subTest(speed=speed):
+                    win.game.reset()
+                    board.clear_animation()
+                    board.clear_selection()
+                    board.set_animation_speed(speed)
+                    left, top, unit = board._layout()
+
+                    def point(x):
+                        return QPointF(left + x * unit, top + 4.5 * unit)
+
+                    def click(x):
+                        QTest.mouseClick(board, Qt.MouseButton.LeftButton,
+                                         Qt.KeyboardModifier.NoModifier, point(x).toPoint())
+
+                    win._make_move(8, 1, 0, 2)
+                    self.assertEqual(win.game.positions[8], 18)
+                    # Advance a real QVariantAnimation deterministically. Pause
+                    # its clock so CI timing cannot race the mouse events.
+                    animation = board._animation
+                    animation.pause()
+                    duration = animation.duration()
+                    animation.setCurrentTime(max(1, duration // 20))
+                    self.assertEqual(board._at(point(.5)), 8)
+                    click(.5)
+                    self.assertEqual(board._selected, {8})
+                    # Visually empty, but reserved by the logical destination.
+                    self.assertIsNone(board._at(point(2.5)))
+                    QTest.mousePress(board, Qt.MouseButton.LeftButton,
+                                     Qt.KeyboardModifier.NoModifier, point(2.5).toPoint())
+                    self.assertIsNone(board._pressed_pos)
+                    QTest.mouseRelease(board, Qt.MouseButton.LeftButton,
+                                       Qt.KeyboardModifier.NoModifier, point(2.5).toPoint())
+                    # A valid empty cell at press becomes visually occupied
+                    # during the gesture. It must not trigger a move on release.
+                    self.assertEqual(board._empty_target_cell(point(1.5)), (1, 4))
+                    QTest.mousePress(board, Qt.MouseButton.LeftButton,
+                                     Qt.KeyboardModifier.NoModifier, point(1.5).toPoint())
+                    self.assertIsNotNone(board._pressed_pos)
+                    animation.setCurrentTime(duration // 5)
+                    self.assertEqual(board._at(point(1.5)), 8)
+                    QTest.mouseRelease(board, Qt.MouseButton.LeftButton,
+                                       Qt.KeyboardModifier.NoModifier, point(1.5).toPoint())
+                    self.assertEqual(win.game.positions[8], 18)
+                    self.assertEqual(win.game.steps, 2)
+                    self.assertEqual(board._selected, {8})
+                    self.assertIsNone(board._pressed_pos)
+                    # A genuinely empty target remains usable after animation.
+                    board.clear_animation()
+                    click(1.5)
+                    self.assertEqual(win.game.positions[8], 17)
+                    self.assertEqual(win.game.steps, 3)
+        finally:
+            win.close()
+
+    def test_drag_from_visible_piece_keeps_legal_preview_and_undo(self):
+        from PySide6.QtCore import QPointF, Qt
+        from huarongdao.gui import MainWindow
+
+        class MouseEvent:
+            def __init__(self, point):
+                self._point = point
+
+            def button(self):
+                return Qt.MouseButton.LeftButton
+
+            def position(self):
+                return self._point
+
+            def modifiers(self):
+                return Qt.KeyboardModifier.NoModifier
+
+        win = MainWindow()
+        try:
+            board = win.board
+            board.resize(660, 735)
+            left, top, unit = board._layout()
+            win._make_move(8, 1, 0, 1)
+            board._animation.stop()
+            board._motion.set_progress(.25)
+            origin = board._motion.displayed(8, win.game.positions)
+            press = MouseEvent(QPointF(left + .5 * unit, top + 4.5 * unit))
+            release = MouseEvent(QPointF(left + 1.5 * unit, top + 4.5 * unit))
+            board.mousePressEvent(press)
+            self.assertEqual(board._selected, {8})
+            board.mouseMoveEvent(release)
+            self.assertEqual(board._preview, {8: 18})
+            self.assertEqual(win.game.positions[8], 17)
+            board.mouseReleaseEvent(release)
+            self.assertEqual(win.game.positions[8], 18)
+            self.assertEqual(win.game.steps, 2)
+            self.assertEqual(board._motion.displayed(8, win.game.positions), origin)
+            self.assertIsNone(board._preview)
+            win._undo()
+            self.assertEqual(win.game.positions[8], 17)
+            self.assertEqual(win.game.steps, 1)
         finally:
             win.close()
 
