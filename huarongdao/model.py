@@ -21,6 +21,10 @@ class GameModel:
     _running_since: float | None = None
     puzzle_id: str = field(default=DEFAULT_PUZZLE, init=False)
 
+    undo_count: int = field(default=0, init=False)
+    hint_count: int = field(default=0, init=False)
+    completion_recorded: bool = field(default=False, init=False)
+
     @property
     def finished(self) -> bool:
         return won(self.positions)
@@ -49,6 +53,8 @@ class GameModel:
         self.paused = False
         self._elapsed = 0.0
         self._running_since = None
+        self.undo_count = self.hint_count = 0
+        self.completion_recorded = False
 
     def move(self, piece_index: int, dx: int, dy: int, count: int = 1) -> int:
         """沿单轴移动至多 count 格；每移动一格计一步，支持逐格撤销。"""
@@ -109,6 +115,7 @@ class GameModel:
     def undo(self) -> bool:
         if not self.history or self.paused:
             return False
+        self.undo_count += 1
         self.positions = self.history.pop()
         self.steps -= self.history_costs.pop()
         if self._running_since is None and self.steps > 0:
@@ -146,3 +153,5 @@ class GameModel:
         self.paused = False
         self._elapsed = 0
         self._running_since = None
+        self.undo_count = self.hint_count = 0
+        self.completion_recorded = False

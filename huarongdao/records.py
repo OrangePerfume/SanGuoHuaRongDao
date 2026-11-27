@@ -9,6 +9,17 @@ import tempfile
 from .puzzles import DEFAULT_PUZZLE, PUZZLES
 
 
+# A legitimate score contains only two small integers. Limit untrusted local
+# file reads before decoding or parsing, and reject unrealistic integer sizes.
+MAX_RECORD_BYTES = 4096
+MAX_RECORD_VALUE = (1 << 63) - 1
+
+
+def _valid_score(steps: object, seconds: object) -> bool:
+    return (type(steps) is int and 1 <= steps <= MAX_RECORD_VALUE
+            and type(seconds) is int and 0 <= seconds <= MAX_RECORD_VALUE)
+
+
 class RecordStore:
     def __init__(self, path: Path):
         self.path = Path(path)
@@ -23,17 +34,19 @@ class RecordStore:
 
     def load(self) -> dict[str, int]:
         try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
-            if (isinstance(data, dict)
-                    and type(data.get("steps")) is int and data["steps"] >= 1
-                    and type(data.get("seconds")) is int and data["seconds"] >= 0):
+            with self.path.open('rb') as source:
+                raw = source.read(MAX_RECORD_BYTES + 1)
+            if len(raw) > MAX_RECORD_BYTES:
+                return {}
+            data = json.loads(raw.decode('utf-8'))
+            if isinstance(data, dict) and _valid_score(data.get('steps'), data.get('seconds')):
                 return {"steps": data["steps"], "seconds": data["seconds"]}
-        except (OSError, ValueError, TypeError, UnicodeError):
+        except (OSError, ValueError, TypeError, UnicodeError, RecursionError):
             pass
         return {}
 
     def update_best(self, steps: int, seconds: int) -> bool:
-        if type(steps) is not int or steps <= 0 or type(seconds) is not int or seconds < 0:
+        if not _valid_score(steps, seconds):
             raise ValueError("非法成绩")
         old = self.load()
         if old and (steps, seconds) >= (old["steps"], old["seconds"]):

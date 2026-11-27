@@ -11,32 +11,89 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
+  resolve-tag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      commit: ${{ steps.resolve.outputs.commit }}
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - name: Validate release tag
+        shell: bash
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid release version tag" >&2
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
+          persist-credentials: false
+      - name: Pin the release source commit
+        id: resolve
+        shell: bash
+        run: |
+          commit=$(git rev-parse --verify HEAD)
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+  security:
+    needs: resolve-tag
+    uses: ./.github/workflows/security.yml
+    permissions:
+      contents: read
+      security-events: write
+    with:
+      checkout_ref: ${{ needs.resolve-tag.outputs.commit }}
   build-and-release:
+    needs: [resolve-tag, security]
     runs-on: windows-latest
     timeout-minutes: 25
     env:
       QT_QPA_PLATFORM: offscreen
-      GH_TOKEN: ${{ github.token }}
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref_name }}
+          ref: ${{ needs.resolve-tag.outputs.commit }}
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           architecture: 'x64'
           cache: pip
           cache-dependency-path: requirements-build.txt
+      - name: Create isolated build environment
+        shell: pwsh
+        run: |
+          python -m venv .venv
+          if ($LASTEXITCODE -ne 0) { throw "Build environment creation failed" }
+          Add-Content -Path $env:GITHUB_PATH -Value (Join-Path $PWD '.venv\Scripts') -Encoding utf8
       - name: Install dependencies
+        run: python -m pip install --upgrade pip
+      - name: Install game and build dependencies
         run: python -m pip install -r requirements-build.txt
+      - name: Verify dependency consistency
+        run: python -m pip check
+      - name: Audit installed dependencies (pip-audit)
+        shell: pwsh
+        run: |
+          $auditDir = Join-Path $env:RUNNER_TEMP 'hrd-audit'
+          python -m venv $auditDir
+          if ($LASTEXITCODE -ne 0) { throw "Audit environment creation failed" }
+          $auditPython = Join-Path $auditDir 'Scripts\python.exe'
+          & $auditPython -m pip install pip-audit==2.10.1
+          if ($LASTEXITCODE -ne 0) { throw "Audit tool installation failed" }
+          $site = python -c "import sysconfig; print(sysconfig.get_path('purelib'))"
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $site)) { throw "Build dependency path unavailable" }
+          & $auditPython -m pip_audit --strict --path $site --progress-spinner off
+          if ($LASTEXITCODE -ne 0) { throw "Dependency vulnerability audit failed" }
       - name: Run all unit and GUI smoke tests
         run: python -X faulthandler tools/run_tests.py --require-qt
       - name: Build Windows application
@@ -50,20 +107,51 @@ jobs:
       - name: Smoke test the packaged executable
         run: python tools/check_frozen.py dist/SanGuoHuaRongDao.exe
       - name: Package Windows application
-        run: python tools/package_windows.py --exe dist/SanGuoHuaRongDao.exe --stage build/release-package --zip-dir . --tag "${{ env.RELEASE_TAG }}"
+        shell: pwsh
+        run: python tools/package_windows.py --exe dist/SanGuoHuaRongDao.exe --stage build/release-package --zip-dir . --tag "$env:RELEASE_TAG"
       - name: Report measured Windows build sizes
-        run: python tools/report_build_size.py --dir build/release-package --exe dist/SanGuoHuaRongDao.exe --zip SanGuoHuaRongDao-${{ env.RELEASE_TAG }}-win-x64.zip
+        shell: pwsh
+        run: python tools/report_build_size.py --dir build/release-package --exe dist/SanGuoHuaRongDao.exe --zip "SanGuoHuaRongDao-$env:RELEASE_TAG-win-x64.zip"
       - name: Save Windows ZIP as workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: SanGuoHuaRongDao-${{ env.RELEASE_TAG }}-win-x64
           path: SanGuoHuaRongDao-${{ env.RELEASE_TAG }}-win-x64.zip
           if-no-files-found: error
+          overwrite: true
+  publish-release:
+    needs: [resolve-tag, build-and-release]
+    runs-on: windows-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve-tag.outputs.commit }}
+          persist-credentials: false
+      - name: Download verified Windows ZIP
+        uses: actions/download-artifact@v4
+        with:
+          name: SanGuoHuaRongDao-${{ env.RELEASE_TAG }}-win-x64
+          path: .
       - name: Create or update versioned GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERIFIED_COMMIT: ${{ needs.resolve-tag.outputs.commit }}
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $tag = $env:RELEASE_TAG
+          # Do not publish an artifact under a tag that moved after scanning.
+          $refs = git ls-remote --exit-code origin "refs/tags/$tag" "refs/tags/$tag^{}"
+          if ($LASTEXITCODE -ne 0) { throw "Could not verify release tag" }
+          $peeled = @($refs | Where-Object { $_.EndsWith("refs/tags/$tag^{}") })
+          $tagRef = @($refs | Where-Object { $_.EndsWith("refs/tags/$tag") })
+          $refLine = if ($peeled.Count -eq 1) { $peeled[0] } elseif ($tagRef.Count -eq 1) { $tagRef[0] } else { throw "Ambiguous release tag" }
+          if (($refLine -split '\s+')[0] -ne $env:VERIFIED_COMMIT) { throw "Release tag moved after scanning" }
           $asset = "SanGuoHuaRongDao-$tag-win-x64.zip"
           if (-not (Test-Path -LiteralPath $asset)) { throw "Missing release asset: $asset" }
           # A release may have been created by an earlier attempt. Keep the tag,

@@ -13,7 +13,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
 
     def test_rebuild_existing_tag_can_be_run_manually(self):
         self.assertIn('workflow_dispatch:', self.content)
-        self.assertIn('ref: ${{ inputs.tag || github.ref_name }}', self.content)
+        self.assertIn('ref: refs/tags/${{ inputs.tag || github.ref_name }}', self.content)
         self.assertIn('RELEASE_TAG: ${{ inputs.tag || github.ref_name }}', self.content)
 
     def test_existing_release_updates_assets_not_tag_or_notes(self):
