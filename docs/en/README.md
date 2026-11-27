@@ -1,12 +1,12 @@
 [简体中文](../../README.md) · [繁體中文](../../docs/zh-TW/README.md) · [English](../../docs/en/README.md)
 
-# Three Kingdoms Klotski (V0.8.0)
+# Three Kingdoms Klotski (V0.9.0)
 
 [![Windows CI](https://github.com/OrangePerfume/SanGuoHuaRongDao/actions/workflows/ci.yml/badge.svg)](https://github.com/OrangePerfume/SanGuoHuaRongDao/actions/workflows/ci.yml) [![MIT License](https://img.shields.io/badge/license-MIT-yellow.svg)](../../LICENSE)
 
 A fully offline sliding-block puzzle for **Windows 10 / 11**, featuring the classic *Heng Dao Li Ma* layout, a richly colored wooden board, and Three Kingdoms character illustrations. It brings back the **gameplay**, not the monochrome display.
 
-**Version: 0.8.0.** Six classic puzzles, verified shortest single-cell paths, and independent best scores.
+**Version: 0.9.0.** Automatic saves, game resumption, personal records, and security and quality gates.
 
 Settings controls background dimming, animation speed and language. The selection plaque is beside the board; multi-selection retains full names. The hint card displays recommendations and has a separate clear button. Gameplay instructions can be expanded or collapsed.
 
@@ -23,6 +23,12 @@ Settings controls background dimming, animation speed and language. The selectio
 ## Classic puzzles
 
 Use the Puzzle menu to choose Heng Dao Li Ma (116 moves), First to the Goal (47), Side by Side (85), Three Routes (92), The Commander (100), or Encirclement (101). The numbers are shortest paths under the single-piece, single-cell counting rule, not the traditional combined-move count. Heng Dao Li Ma remains the default. Switching confirms discarding current progress; Restart resets only the current puzzle. Each puzzle has its own best score, with the original classic record preserved.
+
+## Saved games and personal records
+
+The current puzzle is saved after moves, undo, pause, hint use, puzzle changes, and exit; elapsed time is checkpointed every five seconds while playing. An unfinished puzzle is restored paused on the next launch. Select Resume game to continue; time spent offline is not counted. Restarting or switching puzzles still requires confirmation and replaces the active save.
+
+Personal records lists earlier best scores for all six puzzles and cumulative completions, unassisted completions, unassisted optimal completions, moves, undos, and hints. The new counters start with this version; earlier best scores are retained. The versioned `progress.json` is stored in the local user data directory. Unreadable files are preserved, and only one window can write a given save.
 
 ## Rules
 
@@ -50,7 +56,7 @@ Use the Puzzle menu to choose Heng Dao Li Ma (116 moves), First to the Goal (47)
 
 ## Download and run
 
-Download the version-matched `SanGuoHuaRongDao-v0.8.0-win-x64.zip` from [GitHub Releases](https://github.com/OrangePerfume/SanGuoHuaRongDao/releases). Extract the entire ZIP, then run:
+Download the version-matched `SanGuoHuaRongDao-v0.9.0-win-x64.zip` from [GitHub Releases](https://github.com/OrangePerfume/SanGuoHuaRongDao/releases). Extract the entire ZIP, then run:
 
 `SanGuoHuaRongDao.exe`
 
@@ -84,6 +90,8 @@ Run `build.cmd` from the repository root to install build dependencies, execute 
 | `.github/workflows/` | Windows CI and tag-triggered releases |
 
 Strict test command: `python -X faulthandler tools/run_tests.py --require-qt`. Windows CI covers game rules and the Qt interface; failing checks block the build.
+
+Security and quality gates: CodeQL scans Python source, Ruff checks syntax and selected correctness rules, and pip-audit audits dependencies in the actual Windows build environment. Strict Qt tests, executable startup and archive checks also precede publication.
 
 ## License and more information
 

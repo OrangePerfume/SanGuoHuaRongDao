@@ -6,7 +6,7 @@ from pathlib import Path
 
 from PySide6.QtCore import (
     QEasingCurve, QEvent, QPointF, QRectF, QSize, Qt, QTimer, QVariantAnimation, Signal,
-    QSettings, QSignalBlocker, QStandardPaths,
+    QSettings, QSignalBlocker, QStandardPaths, QLockFile,
 )
 from PySide6.QtGui import (
     QBrush, QColor, QFont, QFontMetrics, QIcon, QKeySequence, QLinearGradient,
@@ -25,6 +25,7 @@ from .model import GameModel
 from .hint import NextMove, next_move, format_hint
 from .motion import ANIMATION_DURATIONS_MS, MotionTrack
 from .records import RecordStore
+from .progress import InvalidProgress, Profile, ProgressStore
 from .puzzles import PUZZLES
 from .theme import board_layout, plaque_geometry, normalize_dimming
 from .i18n import LANGUAGES, HELP_IDS, DEFAULT_LANGUAGE, normalize_language, piece_name, selected_names, tr
@@ -772,6 +773,12 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.game=GameModel()
+        self.profile = Profile()
+        self.progress_store: ProgressStore | None = None
+        self._progress_state = 'save_ready'
+        self._progress_timer = None
+        self._progress_lock = None
+        self._records_writable = True
         self._hint_snapshot: tuple[int, ...] | None = None
         self._next_hint: NextMove | None = None
         writable = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
@@ -964,6 +971,18 @@ class MainWindow(QMainWindow):
         self.best_label.setFont(font(10,True))
         self.best_label.setStyleSheet('color:#775136; background:transparent;')
         progress_layout.addWidget(self.best_label)
+        self.stats_button = dark_button(tr(self.language, 'stats_title'), '#79532E', progress_card)
+        self.stats_button.setMinimumHeight(34)
+        self.stats_button.setFont(font(10, True))
+        self.stats_button.clicked.connect(self._open_statistics)
+        progress_layout.addWidget(self.stats_button)
+        self.save_status = QLabel(progress_card)
+        self.save_status.setFont(font(9))
+        self.save_status.setStyleSheet('color:#775136; background:transparent;')
+        wrap_to_available_width(self.save_status)
+        self.save_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.save_status.hide()
+        progress_layout.addWidget(self.save_status)
         side_layout.addWidget(progress_card)
         controls=QLabel(tr(self.language, 'controls'))
         self.controls_label = controls
@@ -1187,6 +1206,8 @@ class MainWindow(QMainWindow):
         self.steps_caption.setText(t('moves'))
         self.time_caption.setText(t('time'))
         self.controls_label.setText(t('controls'))
+        self.stats_button.setText(t('stats_title'))
+        self._refresh_save_status()
         self.reset_button.setText(t('restart'))
         self.undo_button.setText(t('undo'))
         self.hint_button.setToolTip(t('solution_tooltip'))
@@ -1305,6 +1326,10 @@ class MainWindow(QMainWindow):
         if self.game.paused or self.game.finished or self.board._motion.starts:
             return
         self._next_hint = next_move(self.game.positions)
+        if self._next_hint is not None:
+            self.game.hint_count += 1
+            self.profile.add(self.game.puzzle_id, 'hints')
+            self._save_progress()
         self._hint_snapshot = self.game.positions
         self._refresh_hint()
         self.board.setFocus()
@@ -1321,6 +1346,116 @@ class MainWindow(QMainWindow):
         self.help_scroll.setVisible(expanded)
         self.side_layout.setStretch(self.help_spacer_index, 0 if expanded else 1)
         self.side_layout.invalidate()
+
+    def _refresh_save_status(self) -> None:
+        self.save_status.setText(tr(self.language, self._progress_state))
+
+    def enable_progress(self, directory: Path | None = None) -> None:
+        """Opt in for the real app; self-tests never touch the player's save."""
+        if self._progress_timer is not None:
+            raise RuntimeError('Progress storage already initialized')
+        if directory is not None:
+            self.record_directory = Path(directory)
+        store = ProgressStore(self.record_directory / 'progress.json')
+        self.save_status.show()
+        try:
+            self.record_directory.mkdir(parents=True, exist_ok=True)
+            lock = QLockFile(str(self.record_directory / 'progress.lock'))
+            lock.setStaleLockTime(0)
+            locked = lock.tryLock(0)
+        except OSError:
+            self._records_writable = False
+            self._progress_state = 'save_error'
+        else:
+            if not locked:
+                self._records_writable = False
+                self._progress_state = 'save_locked'
+            else:
+                self._progress_lock = lock
+                try:
+                    self.profile = store.load(self.game)
+                except (OSError, InvalidProgress):
+                    # Do not overwrite an unreadable file (including a future schema).
+                    self._progress_state = 'save_invalid'
+                else:
+                    self.progress_store = store
+                    self._progress_state = 'save_restored' if self.game.paused else 'save_ready'
+        self.records = RecordStore.for_puzzle(self.record_directory, self.game.puzzle_id)
+        self.best = self.records.load()
+        self._reset_board_display()
+        self._refresh_puzzle_labels()
+        self._refresh_save_status()
+        self._progress_timer = QTimer(self)
+        self._progress_timer.setInterval(5000)
+        self._progress_timer.timeout.connect(self._checkpoint_running_game)
+        self._progress_timer.start()
+
+    def _checkpoint_running_game(self) -> None:
+        if self.game.running:
+            self._save_progress()
+
+    def _save_progress(self) -> None:
+        if self.progress_store is None:
+            return
+        try:
+            self.progress_store.save(self.game, self.profile)
+        except (OSError, ValueError):
+            self._progress_state = 'save_error'
+        else:
+            self._progress_state = 'save_ready'
+        self._refresh_save_status()
+
+    def _record_move(self, cost: int) -> None:
+        self.profile.add(self.game.puzzle_id, 'moves', cost)
+        if self.game.finished:
+            self.profile.record_completion(self.game)
+            # Save the best result before the deferred victory dialog; closing
+            # during the animation must not lose a completed game.
+            if self.progress_store is not None:
+                try:
+                    self.records.update_best(self.game.steps, int(self.game.elapsed))
+                    self.best = self.records.load()
+                except (OSError, ValueError):
+                    pass  # the existing victory dialog retries and reports failure
+        self._save_progress()
+
+    def _open_statistics(self) -> None:
+        t = lambda key, **kwargs: tr(self.language, key, **kwargs)
+        dialog = QDialog(self)
+        dialog.setWindowTitle(t('stats_title'))
+        dialog.resize(580, 580)
+        layout = QVBoxLayout(dialog)
+        title = QLabel(t('stats_title'), dialog)
+        title.setFont(font(16, True))
+        layout.addWidget(title)
+        summary = QLabel(t('stats_summary', wins=sum(row['wins'] for row in self.profile.stats.values())), dialog)
+        wrap_to_available_width(summary)
+        layout.addWidget(summary)
+        scroll = QScrollArea(dialog)
+        scroll.setWidgetResizable(True)
+        content = QWidget(scroll)
+        rows = QVBoxLayout(content)
+        for puzzle_id, puzzle in PUZZLES.items():
+            heading = QLabel(t('puzzle_' + puzzle_id), content)
+            heading.setFont(font(12, True))
+            wrap_to_available_width(heading)
+            rows.addWidget(heading)
+            best = RecordStore.for_puzzle(self.record_directory, puzzle.id).load()
+            best_text = (t('best', steps=best['steps'], time=f"{best['seconds']//60:02}:{best['seconds']%60:02}")
+                         if best else t('best_none'))
+            row = self.profile.stats[puzzle.id]
+            body = QLabel(best_text + '\n' + t('stats_counts', **row), content)
+            body.setTextFormat(Qt.TextFormat.PlainText)
+            wrap_to_available_width(body)
+            rows.addWidget(body)
+            rows.addSpacing(10)
+        rows.addStretch()
+        scroll.setWidget(content)
+        layout.addWidget(scroll)
+        button = QPushButton(t('dialog_ok'), dialog)
+        button.clicked.connect(dialog.accept)
+        layout.addWidget(button)
+        self._exec_preferences_dialog(dialog)
 
     def _open_settings(self) -> None:
         t = lambda key: tr(self.language, key)
@@ -1389,6 +1524,7 @@ class MainWindow(QMainWindow):
         if changed:
             self.board.hide_targets()
             self.board.animate(index,old)
+            self._record_move(changed)
             self._update_stats()
             if self.game.finished:
                 self._schedule_win()
@@ -1399,6 +1535,7 @@ class MainWindow(QMainWindow):
         if changed:
             self.board.hide_targets()
             self.board.animate_group(original)
+            self._record_move(len(indices) * changed)
             self._update_stats()
             if self.game.finished:
                 self._schedule_win()
@@ -1430,12 +1567,13 @@ class MainWindow(QMainWindow):
 
     def _show_win_dialog(self) -> None:
         seconds=int(self.game.elapsed)
-        score_saved=True
-        try:
-            if self.records.update_best(self.game.steps,seconds):
-                self.best=self.records.load()
-        except OSError:
-            score_saved=False
+        score_saved = self._records_writable
+        if score_saved:
+            try:
+                if self.records.update_best(self.game.steps,seconds):
+                    self.best=self.records.load()
+            except (OSError, ValueError):
+                score_saved=False
         self._update_stats()
         message = tr(self.language, 'win_message', steps=self.game.steps,
                      time=f'{seconds//60:02}:{seconds%60:02}')
@@ -1457,6 +1595,8 @@ class MainWindow(QMainWindow):
                              if old != self.game.positions[i]}
             self.board.clear_selection()
             self.board.animate_group(old_positions)
+            self.profile.add(self.game.puzzle_id, 'undos')
+            self._save_progress()
             self._update_stats()
 
     def _refresh_puzzle_labels(self) -> None:
@@ -1510,6 +1650,7 @@ class MainWindow(QMainWindow):
         self.best = self.records.load()
         self._reset_board_display()
         self._refresh_puzzle_labels()
+        self._save_progress()
         return True
 
     def _reset_board_display(self) -> None:
@@ -1527,13 +1668,24 @@ class MainWindow(QMainWindow):
         self._cancel_pending_win()
         self.game.reset()
         self._reset_board_display()
+        self._save_progress()
 
     def closeEvent(self, event) -> None:
         self._cancel_pending_win()
+        if self._progress_timer is not None:
+            self._progress_timer.stop()
+        self._save_progress()
+        self.progress_store = None
+        if self._progress_lock is not None:
+            self._progress_lock.unlock()
+            self._progress_lock = None
+        if self._progress_timer is not None:
+            self._records_writable = False
         super().closeEvent(event)
 
     def _pause(self) -> None:
         self.game.toggle_pause()
+        self._save_progress()
         self._update_stats()
         self.board.setFocus()
 
@@ -1544,5 +1696,6 @@ def run() -> int:
     app.setOrganizationName('HuaRongDao')
     app.setFont(font(11))
     window=MainWindow()
+    window.enable_progress()
     window.show()
     return app.exec()

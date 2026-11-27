@@ -2,6 +2,15 @@
 
 # Changelog
 
+## V0.9.0 — 2026-11-27
+
+- Add versioned local autosaves preserving the active puzzle, steps, elapsed time, undo history and assist counters; resume unfinished games paused without counting offline time.
+- Add a personal records window for all puzzles with earlier best scores, completions, unassisted and unassisted optimal completions, moves, undos and hints.
+- Prepare statistics for future challenges and achievements, count each attempt only once across undo and re-completion, and retain legacy best scores.
+- Use atomic writes, file locking, bounded file and history sizes, and legal-history replay validation; preserve unreadable or incompatible saves.
+- Introduce CodeQL, Ruff, dependency vulnerability auditing and dependency consistency checks alongside strict functional, executable startup and archive gates.
+- Separate build and release privileges, pin the release source commit, harden local best-score validation, and extend persistence and statistics regression tests.
+
 ## V0.8.0 — 2026-11-27
 
 - Add six classic one-horizontal-general layouts and a top-bar puzzle menu.

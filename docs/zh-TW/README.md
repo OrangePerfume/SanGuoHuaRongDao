@@ -1,12 +1,12 @@
 [简体中文](../../README.md) · [繁體中文](../../docs/zh-TW/README.md) · [English](../../docs/en/README.md)
 
-# 三國華容道（V0.8.0）
+# 三國華容道（V0.9.0）
 
 [![Windows CI](https://github.com/OrangePerfume/SanGuoHuaRongDao/actions/workflows/ci.yml/badge.svg)](https://github.com/OrangePerfume/SanGuoHuaRongDao/actions/workflows/ci.yml) [![MIT License](https://img.shields.io/badge/license-MIT-yellow.svg)](../../LICENSE)
 
 這是一款適用於 **Windows 10 / 11**、完全離線的單機華容道遊戲。保留經典「橫刀立馬」玩法，搭配彩色木質棋盤與三國人物插畫。懷舊的是遊戲體驗，而不是黑白螢幕。
 
-**版本：0.8.0**。新增六種經典棋局選擇、最短單格步數參考及獨立最佳紀錄。
+**版本：0.9.0**。新增自動存檔與繼續遊戲、個人成績管理及安全品質門禁。
 
 設定中可調整赤壁背景壓暗程度、動畫速度及介面語言。棋盤右側顯示目前選取人物；多選可查看完整名稱。右側解題輔助卡片顯示建議，使用獨立清除按鈕；玩法說明可展開或收合。
 
@@ -23,6 +23,12 @@
 ## 經典棋局
 
 頂部「棋局」選單可切換六種佈局：橫刀立馬（116 步）、捷足先登（47 步）、齊頭並進（85 步）、兵分三路（92 步）、指揮若定（100 步）、將擁曹營（101 步）。步數為求解器驗證的單枚棋子每移動一格計一步的最短路徑，而非傳統合併步數。預設橫刀立馬；切換前確認放棄目前進度，重新開始僅重設目前棋局。各局最佳紀錄獨立儲存，保留舊版橫刀立馬紀錄。
+
+## 遊戲存檔與個人成績
+
+遊戲會在移動、復原、暫停、提示、切換棋局及結束時自動儲存目前棋局，遊戲進行中每五秒儲存一次計時。重新啟動後自動還原未完成的棋局，點選「繼續遊戲」即可接續解題；離線時間不計入用時。重新開始或切換棋局仍須確認，確認後取代目前存檔。
+
+右側「個人成績」顯示六種棋局的歷史最佳成績、累計通關、無輔助通關、無輔助最短步數通關、累計移動、復原及提示次數。舊版最佳成績仍保留，新增統計自本版本開始記錄。資料儲存在本機使用者資料目錄（`progress.json`），存檔異常時保留原始檔案；同一存檔僅允許一個視窗寫入。
 
 ## 遊戲規則
 
@@ -50,7 +56,7 @@
 
 ## 下載與執行
 
-請至 [GitHub Releases](https://github.com/OrangePerfume/SanGuoHuaRongDao/releases) 下載與版本對應的 `SanGuoHuaRongDao-v0.8.0-win-x64.zip`，完整解壓縮並執行：
+請至 [GitHub Releases](https://github.com/OrangePerfume/SanGuoHuaRongDao/releases) 下載與版本對應的 `SanGuoHuaRongDao-v0.9.0-win-x64.zip`，完整解壓縮並執行：
 
 `SanGuoHuaRongDao.exe`
 
@@ -84,6 +90,8 @@ py -3.12 -m venv .venv
 | `.github/workflows/` | Windows CI 及標籤發行 |
 
 嚴格測試指令：`python -X faulthandler tools/run_tests.py --require-qt`。Windows CI 涵蓋遊戲規則與 Qt 圖形介面；門禁失敗時停止建置。
+
+安全與品質門禁：CodeQL 檢查 Python 原始碼，Ruff 檢查語法與關鍵正確性問題，pip-audit 稽核實際 Windows 建置環境的相依套件；發行前另執行嚴格 Qt 測試、EXE 啟動及壓縮檔檢查。
 
 ## 授權與其他文件
 
