@@ -25,6 +25,7 @@ from .model import GameModel
 from .hint import NextMove, next_move, format_hint
 from .motion import ANIMATION_DURATIONS_MS, MotionTrack
 from .records import RecordStore
+from .puzzles import PUZZLES
 from .theme import board_layout, plaque_geometry, normalize_dimming
 from .i18n import LANGUAGES, HELP_IDS, DEFAULT_LANGUAGE, normalize_language, piece_name, selected_names, tr
 
@@ -434,7 +435,9 @@ class BoardWidget(QWidget):
         painter.drawRoundedRect(plaque_rect, 10, 10)
         painter.setPen(c("#F1D7A3"))
         painter.setFont(font(13 if self.language == 'en' else 15, True))
-        painter.drawText(title_rect, Qt.AlignmentFlag.AlignCenter, tr(self.language, "board_title"))
+        painter.drawText(title_rect, Qt.AlignmentFlag.AlignCenter,
+                         tr(self.language, "board_title") if self.game.puzzle_id == "classic"
+                         else tr(self.language, "puzzle_" + self.game.puzzle_id))
         # 底部出口：两格宽位置
         exit_rect = QRectF(x0+unit, y0+5*unit+12, 2*unit, 27)
         painter.setBrush(c("#D4A15C"))
@@ -774,7 +777,8 @@ class MainWindow(QMainWindow):
         writable = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
         if not writable:
             writable = str(Path.home()/'.sanguo_huarongdao')
-        self.records=RecordStore(Path(writable)/'best.json')
+        self.record_directory = Path(writable)
+        self.records = RecordStore.for_puzzle(self.record_directory, self.game.puzzle_id)
         self.best=self.records.load()
         self.settings = QSettings('OrangePerfume', 'SanGuoHuaRongDao')
         self.language = normalize_language(self.settings.value('ui/language', DEFAULT_LANGUAGE))
@@ -852,6 +856,24 @@ class MainWindow(QMainWindow):
             self.language_menu.addAction(action)
             self.language_actions[locale] = action
         self.language_button.setMenu(self.language_menu)
+        self.puzzle_button = dark_button(tr(self.language, 'puzzle_button'), '#50301D', root)
+        self.puzzle_button.setObjectName('puzzleButton')
+        self.puzzle_button.setMinimumHeight(38)
+        self.puzzle_button.setFont(font(10, True))
+        self.puzzle_menu = QMenu(self.puzzle_button)
+        self.puzzle_menu.setStyleSheet(self.language_menu.styleSheet())
+        self.puzzle_group = QActionGroup(self.puzzle_menu)
+        self.puzzle_group.setExclusive(True)
+        self.puzzle_actions = {}
+        for puzzle_id in PUZZLES:
+            action = QAction(self.puzzle_menu)
+            action.setCheckable(True)
+            action.triggered.connect(lambda checked=False, chosen=puzzle_id: self.select_puzzle(chosen))
+            self.puzzle_group.addAction(action)
+            self.puzzle_menu.addAction(action)
+            self.puzzle_actions[puzzle_id] = action
+        self.puzzle_button.setMenu(self.puzzle_menu)
+        titlebar.addWidget(self.puzzle_button)
         titlebar.addWidget(self.language_button)
         self.settings_button = dark_button(tr(self.language, 'settings'), '#50301D', root)
         self.about_button = dark_button(tr(self.language, 'about'), '#50301D', root)
@@ -1150,7 +1172,7 @@ class MainWindow(QMainWindow):
         self.language_button.setText(t('language_button'))
         self.language_button.setToolTip(t('language_tooltip'))
         self.language_actions[language].setChecked(True)
-        self.chapter_header.setText(t('chapter_title'))
+        self._refresh_puzzle_labels()
         self.chapter_header.setFont(font(18 if language == 'en' else 24, True))
         # Longer English text gets extra room, without shrinking the board below
         # its 500px minimum (990 - 46 margins - 17 spacing - 400 = 527px).
@@ -1160,7 +1182,6 @@ class MainWindow(QMainWindow):
         self.side_layout.setContentsMargins(margin, 15, margin, 15)
         help_margin = 10 if language == 'en' else 13
         self.help_layout.setContentsMargins(help_margin, 11, help_margin, 12)
-        self.tagline_label.setText(t('chapter_subtitle'))
         self.intro_label.setText(t('description'))
         self.progress_title_label.setText(t('progress'))
         self.steps_caption.setText(t('moves'))
@@ -1438,34 +1459,74 @@ class MainWindow(QMainWindow):
             self.board.animate_group(old_positions)
             self._update_stats()
 
-    def _restart(self) -> None:
-        if self.game.steps:
-            dialog = QMessageBox(self)
-            dialog.setWindowTitle(tr(self.language, 'restart_title'))
-            dialog.setIcon(QMessageBox.Icon.Question)
-            dialog.setText(tr(self.language, 'restart_confirm'))
-            dialog.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-            dialog.setDefaultButton(QMessageBox.StandardButton.No)
-            dialog.button(QMessageBox.StandardButton.Yes).setText(tr(self.language, 'confirm_yes'))
-            dialog.button(QMessageBox.StandardButton.No).setText(tr(self.language, 'confirm_no'))
-            # Do not open a second modal dialog while restart is being confirmed.
-            self._restart_confirming = True
-            self._win_timer.stop()
-            try:
-                accepted = dialog.exec() == QMessageBox.StandardButton.Yes
-            finally:
-                self._restart_confirming = False
-            if not accepted:
-                self._queue_win_dialog()
-                return
+    def _refresh_puzzle_labels(self) -> None:
+        puzzle = PUZZLES[self.game.puzzle_id]
+        t = lambda key, **kwargs: tr(self.language, key, **kwargs)
+        name = t('puzzle_' + puzzle.id)
+        self.puzzle_button.setText(t('puzzle_button'))
+        self.puzzle_button.setToolTip(name)
+        self.chapter_header.setText(t('chapter_title') if puzzle.id == 'classic' else name)
+        self.tagline_label.setText(t('puzzle_minimum', steps=puzzle.minimum_steps))
+        for puzzle_id, action in self.puzzle_actions.items():
+            action.setText(t('puzzle_menu_item', name=t('puzzle_' + puzzle_id),
+                             steps=PUZZLES[puzzle_id].minimum_steps))
+            action.setChecked(puzzle_id == puzzle.id)
+        self.board.update()
+
+    def _confirm_discard(self, title: str, message: str) -> bool:
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle(title)
+        dialog.setIcon(QMessageBox.Icon.Question)
+        dialog.setText(message)
+        dialog.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        dialog.setDefaultButton(QMessageBox.StandardButton.No)
+        dialog.button(QMessageBox.StandardButton.Yes).setText(tr(self.language, 'confirm_yes'))
+        dialog.button(QMessageBox.StandardButton.No).setText(tr(self.language, 'confirm_no'))
+        self._restart_confirming = True
+        self._win_timer.stop()
+        try:
+            accepted = dialog.exec() == QMessageBox.StandardButton.Yes
+        finally:
+            self._restart_confirming = False
+        if not accepted:
+            self._queue_win_dialog()
+        return accepted
+
+    def select_puzzle(self, puzzle_id: str) -> bool:
+        if puzzle_id not in PUZZLES:
+            raise ValueError('Unknown puzzle')
+        if puzzle_id == self.game.puzzle_id:
+            return False
+        # Restore the old checked action until the player confirms the switch.
+        self.puzzle_actions[self.game.puzzle_id].setChecked(True)
+        if self.game.steps and not self._confirm_discard(
+                tr(self.language, 'puzzle_switch_title'),
+                tr(self.language, 'puzzle_switch_confirm',
+                   name=tr(self.language, 'puzzle_' + puzzle_id))):
+            return False
         self._cancel_pending_win()
-        self.game.reset()
+        self.game.select_puzzle(puzzle_id)
+        self.records = RecordStore.for_puzzle(self.record_directory, puzzle_id)
+        self.best = self.records.load()
+        self._reset_board_display()
+        self._refresh_puzzle_labels()
+        return True
+
+    def _reset_board_display(self) -> None:
         self._clear_hint()
         self.board.clear_selection()
         self.board.clear_animation()
         self._on_selection_changed(tr(self.language, 'selection_none'))
         self._update_stats()
         self.board.setFocus()
+
+    def _restart(self) -> None:
+        if self.game.steps and not self._confirm_discard(
+                tr(self.language, 'restart_title'), tr(self.language, 'restart_confirm')):
+            return
+        self._cancel_pending_win()
+        self.game.reset()
+        self._reset_board_display()
 
     def closeEvent(self, event) -> None:
         self._cancel_pending_win()

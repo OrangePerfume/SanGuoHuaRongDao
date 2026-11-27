@@ -1,12 +1,12 @@
 [简体中文](README.md) · [繁體中文](docs/zh-TW/README.md) · [English](docs/en/README.md)
 
-# 三国华容道 · 横刀立马（V0.7.0）
+# 三国华容道（V0.8.0）
 
 [![Windows CI](https://github.com/OrangePerfume/SanGuoHuaRongDao/actions/workflows/ci.yml/badge.svg)](https://github.com/OrangePerfume/SanGuoHuaRongDao/actions/workflows/ci.yml) [![MIT License](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
 一款面向 **Windows 10 / 11** 的完全离线单机华容道游戏：保留经典「横刀立马」玩法，采用彩色木质棋盘与三国人物插画。怀旧的是玩法，而不是黑白屏幕。
 
-**版本：0.7.0**。新增赤壁主题背景、红金选中牌与现代化操作面板。
+**版本：0.8.0**。新增六种经典棋局选择、最短单格步数参考及独立最佳成绩。
 
 设置中可调整赤壁背景压暗程度、动画速度和界面语言。棋盘右侧显示当前选中人物；多选可查看完整名称。右侧解题辅助卡片显示建议，使用独立清除按钮；玩法说明可展开或收起。
 
@@ -19,6 +19,10 @@
 - 通过游戏窗口右上角的 **「语言 / Language」按钮**，选择 **简体中文 / 繁體中文 / English**。
 - 切换立即生效，包括棋盘、人物姓名、按钮、玩法说明、成绩和弹窗；不需要重新启动。
 - 默认简体中文；自动记住上次选择。切换语言不会清除当前棋局、移动记录、计时或动画速度。
+
+## 经典棋局
+
+顶部「棋局」菜单可切换六种布局：横刀立马（116 步）、捷足先登（47 步）、齐头并进（85 步）、兵分三路（92 步）、指挥若定（100 步）、将拥曹营（101 步）。步数为求解器验证的单枚棋子每移动一格计一步的最短路径，不是传统合并步数。默认横刀立马；切换前确认放弃当前进度，重新开始仅复位当前棋局。各局最佳成绩独立保存，旧版横刀立马成绩保留。
 
 ## 游戏规则
 
@@ -46,7 +50,7 @@
 
 ## 下载与运行
 
-从 [GitHub Releases](https://github.com/OrangePerfume/SanGuoHuaRongDao/releases) 下载与版本匹配的 `SanGuoHuaRongDao-v0.7.0-win-x64.zip`。完整解压后运行：
+从 [GitHub Releases](https://github.com/OrangePerfume/SanGuoHuaRongDao/releases) 下载与版本匹配的 `SanGuoHuaRongDao-v0.8.0-win-x64.zip`。完整解压后运行：
 
 `SanGuoHuaRongDao.exe`
 

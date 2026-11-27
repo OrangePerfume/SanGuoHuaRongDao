@@ -34,8 +34,8 @@ base.paste(scene,(-270,0))
 base=Image.blend(base,Image.new('RGB',base.size,(19,12,8)),.22)
 d=ImageDraw.Draw(base)
 d.text((32,19),'三 国 华 容 道',fill=(250,221,167),font=ft(38,True))
-d.text((34,72),'经典棋局 · 横刀立马  |  一局不急，步步有谋',fill=(239,210,160),font=ft(17))
-for x,w,label in ((856,178,'语言：简体中文'),(1044,106,'设置'),(1160,106,'关于')):
+d.text((34,72),'经典棋局 · 一局不急，步步有谋',fill=(239,210,160),font=ft(17))
+for x,w,label in ((748,98,'棋局'),(856,178,'语言：简体中文'),(1044,106,'设置'),(1160,106,'关于')):
     d.rounded_rectangle((x,35,x+w,80),radius=8,fill='#50301D',outline='#C69A62',width=2)
     centered(d,(x+w/2,57),label,'#F7DEAF',ft(17,True))
 # Board frame

@@ -9,6 +9,7 @@ def smoke_test() -> int:
     from shiboken6 import delete
     from huarongdao.gui import ASSETS, PORTRAITS, MainWindow
     from huarongdao.hint import format_hint
+    from huarongdao.puzzles import PUZZLES
 
     app = QApplication([])
     window = None
@@ -45,6 +46,18 @@ def smoke_test() -> int:
         window.clear_hint_button.click()
         if window.board.solution_hint is not None:
             raise RuntimeError('Next-move hint did not clear')
+        for puzzle in PUZZLES.values():
+            window.select_puzzle(puzzle.id)
+            app.processEvents()
+            if (window.game.positions != puzzle.positions
+                    or not window.puzzle_actions[puzzle.id].isChecked()
+                    or window.game.steps or window.game.running):
+                raise RuntimeError(f'Puzzle selection failed: {puzzle.id}')
+            window.hint_button.click()
+            hint = window.board.solution_hint
+            if hint is None or hint.remaining != puzzle.minimum_steps:
+                raise RuntimeError(f'Puzzle hint failed: {puzzle.id}')
+            window.clear_hint_button.click()
         return 0
     finally:
         if window is not None:

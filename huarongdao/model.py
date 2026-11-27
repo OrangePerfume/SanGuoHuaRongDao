@@ -6,6 +6,7 @@ import time
 from typing import Callable
 
 from .core import START, shifted, shifted_group, valid, won
+from .puzzles import DEFAULT_PUZZLE, PUZZLES
 
 
 @dataclass
@@ -18,6 +19,7 @@ class GameModel:
     paused: bool = False
     _elapsed: float = 0.0
     _running_since: float | None = None
+    puzzle_id: str = field(default=DEFAULT_PUZZLE, init=False)
 
     @property
     def finished(self) -> bool:
@@ -33,8 +35,14 @@ class GameModel:
             return self._elapsed
         return self._elapsed + max(0.0, self.clock() - self._running_since)
 
+    def select_puzzle(self, puzzle_id: str) -> None:
+        if puzzle_id not in PUZZLES:
+            raise ValueError("Unknown puzzle")
+        self.puzzle_id = puzzle_id
+        self.reset()
+
     def reset(self) -> None:
-        self.positions = START
+        self.positions = PUZZLES[self.puzzle_id].positions
         self.history.clear()
         self.history_costs.clear()
         self.steps = 0
