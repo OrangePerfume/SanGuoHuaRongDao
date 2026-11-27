@@ -162,3 +162,96 @@ class ProgressTests(unittest.TestCase):
             profile = ProgressStore(root / 'progress.json').load(game)
             self.assertEqual(profile.stats['classic']['wins'], 0)
             self.assertEqual(RecordStore.for_puzzle(root, 'classic').load(), {'steps': 116, 'seconds': 240})
+
+    def test_legacy_stats_and_new_best_cache_round_trip(self):
+        from huarongdao.progress import LEGACY_COUNTERS
+        with TemporaryDirectory() as td:
+            root = Path(td)
+            store = ProgressStore(root / 'progress.json')
+            game, profile = GameModel(), Profile()
+            old = {p: {k: row[k] for k in LEGACY_COUNTERS} for p, row in profile.stats.items()}
+            store.path.write_text(json.dumps({'schema': 1, 'active': snapshot(game), 'stats': old}))
+            profile = store.load(game)
+            self.assertEqual(profile.stats['classic']['completed_seconds'], 0)
+            self.assertEqual(profile.fastest_seconds, {})
+            RecordStore.for_puzzle(root, 'classic').update_best(120, 300)
+            profile.import_legacy_scores(root)
+            self.assertEqual(profile.best_scores['classic'], {'steps': 120, 'seconds': 300})
+            self.assertEqual(profile.stats['classic']['wins'], 0)
+            self.assertTrue(store.save(game, profile))
+            restored = ProgressStore(store.path).load(GameModel())
+            self.assertEqual(restored.best_scores, profile.best_scores)
+
+    def test_best_cache_recovers_after_mirror_failure_without_duplicate_wins(self):
+        with TemporaryDirectory() as td:
+            root = Path(td)
+            clock = Clock()
+            game, profile = GameModel(clock=clock), Profile()
+            game.select_puzzle('first_arrival')
+            moves = shortest_path(game.positions)
+            for move in moves:
+                i = index_for_solver_move(game.positions, move)
+                game.move(i, move.target % 4 - move.source % 4, move.target // 4 - move.source // 4)
+                clock.now += 1
+            self.assertTrue(profile.record_completion(game))
+            self.assertTrue(profile.remember_best(game.puzzle_id, game.steps, int(game.elapsed)))
+            store = ProgressStore(root / 'progress.json')
+            store.save(game, profile)
+            with patch.object(RecordStore, 'update_best', side_effect=OSError('denied')):
+                with self.assertRaises(OSError):
+                    profile.sync_legacy_scores(root)
+            fresh = GameModel()
+            restored = ProgressStore(store.path).load(fresh)
+            self.assertFalse(restored.record_completion(fresh))
+            self.assertEqual(restored.stats['first_arrival']['wins'], 1)
+            self.assertEqual(restored.stats['first_arrival']['completed_seconds'], int(game.elapsed))
+            self.assertEqual(restored.fastest_seconds['first_arrival'], int(game.elapsed))
+            restored.sync_legacy_scores(root)
+            score = RecordStore.for_puzzle(root, 'first_arrival').load()
+            self.assertEqual(score, restored.best_scores['first_arrival'])
+            with patch('huarongdao.records.os.replace', side_effect=AssertionError('unneeded write')):
+                restored.sync_legacy_scores(root)
+
+    def test_identical_snapshot_skips_disk_write_and_manual_backup_is_independent(self):
+        with TemporaryDirectory() as td:
+            root = Path(td)
+            store = ProgressStore(root / 'progress.json')
+            game, profile = GameModel(), Profile()
+            self.assertTrue(store.save(game, profile))
+            original = store.path.read_bytes()
+            with patch('huarongdao.progress.os.replace', side_effect=AssertionError('duplicate write')):
+                self.assertFalse(store.save(game, profile))
+            game.move(8, 1, 0)
+            game.toggle_pause()
+            backup = store.backup(game, profile)
+            backup2 = store.backup(game, profile)
+            self.assertNotEqual(backup.parent, backup2.parent)
+            restored = GameModel()
+            ProgressStore(backup).load(restored)
+            self.assertEqual(restored.positions, game.positions)
+            self.assertEqual(store.path.read_bytes(), original)
+
+    def test_archive_invalid_preserves_bytes_and_failed_archive_leaves_original(self):
+        with TemporaryDirectory() as td:
+            root = Path(td)
+            store = ProgressStore(root / 'progress.json')
+            store.path.write_bytes(b'{bad')
+            with patch('huarongdao.progress.os.replace', side_effect=OSError('denied')):
+                with self.assertRaises(OSError):
+                    store.archive_invalid()
+            self.assertEqual(store.path.read_bytes(), b'{bad')
+            self.assertEqual(list(root.iterdir()), [store.path])
+            archived = store.archive_invalid()
+            self.assertEqual(archived.read_bytes(), b'{bad')
+            self.assertFalse(store.path.exists())
+            store.save(GameModel(), Profile())
+            self.assertEqual(archived.read_bytes(), b'{bad')
+
+    def test_extended_profile_rejects_invalid_scores_and_time(self):
+        profile = Profile()
+        for best, fastest in [({'../bad': {'steps': 1, 'seconds': 0}}, {}),
+                              ({'classic': {'steps': True, 'seconds': 0}}, {}),
+                              ({'classic': {'steps': 1, 'seconds': -1}}, {}),
+                              ({}, {'classic': 3}), ({}, {'unknown': 2})]:
+            with self.subTest(best=best, fastest=fastest), self.assertRaises(InvalidProgress):
+                Profile.from_data(profile.stats, best, fastest)

@@ -30,6 +30,8 @@ The current puzzle is saved after moves, undo, pause, hint use, puzzle changes, 
 
 Personal records lists earlier best scores for all six puzzles and cumulative completions, unassisted completions, unassisted optimal completions, moves, undos, and hints. The new counters start with this version; earlier best scores are retained. The versioned `progress.json` is stored in the local user data directory. Unreadable files are preserved, and only one window can write a given save.
 
+If saving fails on exit, retry, exit without saving, or cancel. After explicit confirmation, archive an unreadable save in a unique backup folder and start a new record without losing legacy best scores. The personal records dashboard includes fastest completions, total time of recorded completions, distance from the shortest path, manual backups and the data folder. Other windows display saved statistics read-only and do not count local actions.
+
 ## Rules
 
 - The board has **4 columns × 5 rows**, 10 pieces, and two empty cells.

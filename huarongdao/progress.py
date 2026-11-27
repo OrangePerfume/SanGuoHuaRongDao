@@ -11,13 +11,15 @@ from dataclasses import dataclass, field
 from .core import BOARD_W, BOARD_H, PIECES, shifted_group, valid, won
 from .model import GameModel
 from .puzzles import PUZZLES
+from .records import RecordStore, _valid_score
 
 SCHEMA = 1
 MAX_BYTES = 2 * 1024 * 1024
 MAX_HISTORY = 20_000
 MAX_COUNTER = (1 << 53) - 1
 MAX_ELAPSED = 10 * 365 * 24 * 60 * 60
-COUNTERS = ('moves', 'undos', 'hints', 'wins', 'unassisted_wins', 'optimal_wins')
+LEGACY_COUNTERS = ('moves', 'undos', 'hints', 'wins', 'unassisted_wins', 'optimal_wins')
+COUNTERS = (*LEGACY_COUNTERS, 'completed_seconds')
 
 
 class InvalidProgress(ValueError):
@@ -114,18 +116,59 @@ class Profile:
     stats: dict[str, dict[str, int]] = field(default_factory=lambda: {
         puzzle: dict.fromkeys(COUNTERS, 0) for puzzle in PUZZLES})
 
+    best_scores: dict[str, dict[str, int]] = field(default_factory=dict)
+    fastest_seconds: dict[str, int] = field(default_factory=dict)
+
     @classmethod
-    def from_data(cls, data: object) -> Profile:
+    def from_data(cls, data: object, best_scores: object = None,
+                  fastest_seconds: object = None) -> Profile:
         if not isinstance(data, dict) or set(data) != set(PUZZLES):
             raise InvalidProgress('Invalid statistics puzzle keys')
         values = {}
         for puzzle, row in data.items():
-            if not isinstance(row, dict) or set(row) != set(COUNTERS):
+            if not isinstance(row, dict) or set(row) not in (set(COUNTERS), set(LEGACY_COUNTERS)):
                 raise InvalidProgress('Invalid statistics counters')
-            values[puzzle] = {key: _counter(value) for key, value in row.items()}
+            values[puzzle] = {key: _counter(row.get(key, 0)) for key in COUNTERS}
             if max(row['unassisted_wins'], row['optimal_wins']) > row['wins']:
                 raise InvalidProgress('Invalid completion counts')
-        return cls(values)
+        profile = cls(values)
+        if best_scores is not None:
+            if not isinstance(best_scores, dict) or not set(best_scores) <= set(PUZZLES):
+                raise InvalidProgress('Invalid best score keys')
+            for puzzle, score in best_scores.items():
+                if (not isinstance(score, dict) or set(score) != {'steps', 'seconds'}
+                        or not _valid_score(score['steps'], score['seconds'])):
+                    raise InvalidProgress('Invalid best score')
+                profile.best_scores[puzzle] = dict(score)
+        if fastest_seconds is not None:
+            if not isinstance(fastest_seconds, dict) or not set(fastest_seconds) <= set(PUZZLES):
+                raise InvalidProgress('Invalid fastest time keys')
+            for puzzle, seconds in fastest_seconds.items():
+                if not values[puzzle]['wins'] or _counter(seconds) > MAX_ELAPSED:
+                    raise InvalidProgress('Invalid fastest time')
+                profile.fastest_seconds[puzzle] = seconds
+        return profile
+
+    def remember_best(self, puzzle: str, steps: int, seconds: int) -> bool:
+        if puzzle not in PUZZLES or not _valid_score(steps, seconds):
+            raise InvalidProgress('Invalid best score')
+        old = self.best_scores.get(puzzle)
+        if old and (steps, seconds) >= (old['steps'], old['seconds']):
+            return False
+        self.best_scores[puzzle] = {'steps': steps, 'seconds': seconds}
+        return True
+
+    def import_legacy_scores(self, directory: Path) -> None:
+        for puzzle in PUZZLES:
+            score = RecordStore.for_puzzle(directory, puzzle).load()
+            if score:
+                self.remember_best(puzzle, **score)
+
+    def sync_legacy_scores(self, directory: Path) -> None:
+        # The versioned progress file is authoritative after its atomic commit.
+        # Legacy best files are idempotent mirrors; retry after interruption.
+        for puzzle, score in self.best_scores.items():
+            RecordStore.for_puzzle(directory, puzzle).update_best(**score)
 
     def add(self, puzzle: str, key: str, amount: int = 1) -> None:
         if type(amount) is not int or amount < 0:
@@ -138,6 +181,10 @@ class Profile:
             return False
         game.completion_recorded = True
         self.add(game.puzzle_id, 'wins')
+        seconds = min(MAX_ELAPSED, int(game.elapsed))
+        self.add(game.puzzle_id, 'completed_seconds', seconds)
+        previous = self.fastest_seconds.get(game.puzzle_id, seconds)
+        self.fastest_seconds[game.puzzle_id] = min(previous, seconds)
         if not game.undo_count and not game.hint_count:
             self.add(game.puzzle_id, 'unassisted_wins')
             if game.steps == PUZZLES[game.puzzle_id].minimum_steps:
@@ -149,6 +196,7 @@ class ProgressStore:
     """One atomic document keeps the active attempt and aggregate statistics together."""
     def __init__(self, path: Path):
         self.path = Path(path)
+        self._last_raw: bytes | None = None
 
     def load(self, game: GameModel) -> Profile:
         try:
@@ -162,19 +210,50 @@ class ProgressStore:
             data = json.loads(raw.decode('utf-8'))
             if not isinstance(data, dict) or type(data.get('schema')) is not int or data['schema'] != SCHEMA:
                 raise InvalidProgress('Unsupported progress schema')
-            profile = Profile.from_data(data.get('stats'))
+            profile = Profile.from_data(data.get('stats'), data.get('best_scores'), data.get('fastest_seconds'))
             restore_snapshot(game, data.get('active'))
+            self._last_raw = raw
             return profile
         except (ValueError, TypeError, RecursionError, OverflowError) as exc:
             raise InvalidProgress('Invalid progress file') from exc
 
-    def save(self, game: GameModel, profile: Profile) -> None:
+    def backup(self, game: GameModel, profile: Profile) -> Path:
+        """Write a self-contained, uniquely named snapshot without replacing the live save."""
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        directory = Path(tempfile.mkdtemp(prefix='progress-backup-', dir=self.path.parent))
+        backup = ProgressStore(directory / self.path.name)
+        try:
+            backup.save(game, profile)
+        except (OSError, ValueError):
+            directory.rmdir()
+            raise
+        return backup.path
+
+    def archive_invalid(self) -> Path:
+        """Move the original bytes to a unique sibling directory, never overwrite a backup.
+
+        The caller must hold the write lock and obtain explicit confirmation.
+        """
+        directory = Path(tempfile.mkdtemp(prefix='progress-recovery-', dir=self.path.parent))
+        backup = directory / self.path.name
+        try:
+            os.replace(self.path, backup)
+        except OSError:
+            directory.rmdir()
+            raise
+        self._last_raw = None
+        return backup
+
+    def save(self, game: GameModel, profile: Profile) -> bool:
         if len(game.history) > MAX_HISTORY:
             raise InvalidProgress('History exceeds storage limit')
-        raw = json.dumps({'schema': SCHEMA, 'active': snapshot(game), 'stats': profile.stats},
+        raw = json.dumps({'schema': SCHEMA, 'active': snapshot(game), 'stats': profile.stats, 'best_scores': profile.best_scores,
+                          'fastest_seconds': profile.fastest_seconds},
                          ensure_ascii=False, allow_nan=False, separators=(',', ':')).encode('utf-8')
         if len(raw) > MAX_BYTES:
             raise InvalidProgress('Progress file too large')
+        if raw == self._last_raw and self.path.is_file():
+            return False
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = None
         try:
@@ -185,6 +264,8 @@ class ProgressStore:
                 stream.flush()
                 os.fsync(stream.fileno())
             os.replace(tmp, self.path)
+            self._last_raw = raw
+            return True
         finally:
             if tmp is not None:
                 try:

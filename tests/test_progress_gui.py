@@ -107,3 +107,66 @@ class ProgressGuiTests(unittest.TestCase):
             finally:
                 first.close()
                 second.close()
+
+    def test_save_failure_cancel_then_retry_close(self):
+        from huarongdao.gui import MainWindow
+        from PySide6.QtGui import QCloseEvent
+        with TemporaryDirectory() as td:
+            win = MainWindow()
+            win.enable_progress(Path(td))
+            win._make_move(8, 1, 0, 1)
+            try:
+                with patch.object(win.progress_store, 'save', side_effect=OSError('denied')), \
+                        patch.object(win, '_ask_save_failure', return_value='cancel'):
+                    event = QCloseEvent()
+                    win.closeEvent(event)
+                    self.assertFalse(event.isAccepted())
+                    self.assertTrue(win._progress_timer.isActive())
+                    self.assertIsNotNone(win._progress_lock)
+                self.assertTrue(win._save_failed)
+                win._checkpoint_running_game()
+                self.assertFalse(win._save_failed)
+            finally:
+                win.close()
+
+    def test_readonly_statistics_loaded_without_recording_local_moves(self):
+        from huarongdao.gui import MainWindow
+        with TemporaryDirectory() as td:
+            first, second = MainWindow(), MainWindow()
+            try:
+                first.enable_progress(Path(td))
+                first._make_move(8, 1, 0, 1)
+                second.enable_progress(Path(td))
+                self.assertEqual(second._progress_state, 'save_locked')
+                self.assertEqual(second.profile.stats['classic']['moves'], 1)
+                self.assertEqual(second.game.steps, 0)
+                second._make_move(8, 1, 0, 1)
+                self.assertEqual(second.profile.stats['classic']['moves'], 1)
+            finally:
+                second.close()
+                first.close()
+
+    def test_recover_requires_confirmation_and_archives_original(self):
+        from huarongdao.gui import MainWindow
+        from huarongdao.model import GameModel
+        from huarongdao.progress import ProgressStore
+        with TemporaryDirectory() as td:
+            root = Path(td)
+            original = root / 'progress.json'
+            original.write_bytes(b'corrupt')
+            win = MainWindow()
+            try:
+                win.enable_progress(root)
+                with patch.object(win, '_confirm_discard', return_value=False):
+                    self.assertFalse(win._recover_progress())
+                self.assertEqual(original.read_bytes(), b'corrupt')
+                self.assertFalse(win._records_writable)
+                with patch.object(win, '_confirm_discard', return_value=True), \
+                        patch('huarongdao.gui.QMessageBox.information'):
+                    self.assertTrue(win._recover_progress())
+                self.assertTrue(win._records_writable)
+                self.assertEqual(len(list(root.glob('progress-recovery-*/progress.json'))), 1)
+                self.assertEqual(next(root.glob('progress-recovery-*/progress.json')).read_bytes(), b'corrupt')
+                self.assertEqual(ProgressStore(original).load(GameModel()).stats, Profile().stats)
+            finally:
+                win.close()

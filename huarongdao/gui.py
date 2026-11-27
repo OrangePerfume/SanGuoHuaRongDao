@@ -2,20 +2,21 @@
 from __future__ import annotations
 
 import math
+from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import (
     QEasingCurve, QEvent, QPointF, QRectF, QSize, Qt, QTimer, QVariantAnimation, Signal,
-    QSettings, QSignalBlocker, QStandardPaths, QLockFile,
+    QSettings, QSignalBlocker, QStandardPaths, QLockFile, QUrl,
 )
 from PySide6.QtGui import (
     QBrush, QColor, QFont, QFontMetrics, QIcon, QKeySequence, QLinearGradient,
-    QAction, QActionGroup, QPainter, QPainterPath, QPen, QPixmap, QShortcut,
+    QAction, QActionGroup, QPainter, QPainterPath, QPen, QPixmap, QShortcut, QDesktopServices,
 )
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QFrame, QHBoxLayout, QLabel, QMainWindow, QMessageBox,
     QMenu, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
-    QDialog, QDialogButtonBox, QFormLayout, QSlider,
+    QDialog, QDialogButtonBox, QFormLayout, QSlider, QGridLayout,
 )
 
 from . import __version__
@@ -779,6 +780,10 @@ class MainWindow(QMainWindow):
         self._progress_timer = None
         self._progress_lock = None
         self._records_writable = True
+        self._last_saved = None
+        self._save_failed = False
+        self._synced_best = {}
+        self._new_best = False
         self._hint_snapshot: tuple[int, ...] | None = None
         self._next_hint: NextMove | None = None
         writable = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
@@ -1328,7 +1333,8 @@ class MainWindow(QMainWindow):
         self._next_hint = next_move(self.game.positions)
         if self._next_hint is not None:
             self.game.hint_count += 1
-            self.profile.add(self.game.puzzle_id, 'hints')
+            if self._records_writable:
+                self.profile.add(self.game.puzzle_id, 'hints')
             self._save_progress()
         self._hint_snapshot = self.game.positions
         self._refresh_hint()
@@ -1349,6 +1355,31 @@ class MainWindow(QMainWindow):
 
     def _refresh_save_status(self) -> None:
         self.save_status.setText(tr(self.language, self._progress_state))
+        if self._progress_state == 'save_restored':
+            seconds = int(self.game.elapsed)
+            detail = tr(self.language, 'save_restore_detail',
+                        name=tr(self.language, 'puzzle_' + self.game.puzzle_id),
+                        steps=self.game.steps, time=f'{seconds//60:02}:{seconds%60:02}')
+        elif self._last_saved is not None:
+            detail = tr(self.language, 'save_last', time=self._last_saved)
+        else:
+            detail = ''
+        self.save_status.setToolTip(detail)
+        self.save_status.setStyleSheet('color:' + ('#963C2D' if self._progress_state in
+            ('save_error', 'save_invalid', 'save_locked', 'save_unavailable') else '#775136') +
+            '; background:transparent;')
+
+    def _load_readonly_profile(self) -> None:
+        # Never restore the active board or mutate counters for another window.
+        try:
+            self.profile = ProgressStore(self.record_directory / 'progress.json').load(GameModel())
+        except (OSError, InvalidProgress):
+            pass
+        self.profile.import_legacy_scores(self.record_directory)
+
+    def _load_best(self) -> None:
+        self.records = RecordStore.for_puzzle(self.record_directory, self.game.puzzle_id)
+        self.best = self.profile.best_scores.get(self.game.puzzle_id) or self.records.load()
 
     def enable_progress(self, directory: Path | None = None) -> None:
         """Opt in for the real app; self-tests never touch the player's save."""
@@ -1357,6 +1388,7 @@ class MainWindow(QMainWindow):
         if directory is not None:
             self.record_directory = Path(directory)
         store = ProgressStore(self.record_directory / 'progress.json')
+        self._records_writable = False
         self.save_status.show()
         try:
             self.record_directory.mkdir(parents=True, exist_ok=True)
@@ -1364,24 +1396,34 @@ class MainWindow(QMainWindow):
             lock.setStaleLockTime(0)
             locked = lock.tryLock(0)
         except OSError:
-            self._records_writable = False
-            self._progress_state = 'save_error'
+            self._progress_state = 'save_unavailable'
         else:
             if not locked:
-                self._records_writable = False
                 self._progress_state = 'save_locked'
             else:
                 self._progress_lock = lock
                 try:
                     self.profile = store.load(self.game)
-                except (OSError, InvalidProgress):
-                    # Do not overwrite an unreadable file (including a future schema).
+                except InvalidProgress:
                     self._progress_state = 'save_invalid'
+                except OSError:
+                    self._progress_state = 'save_unavailable'
                 else:
                     self.progress_store = store
+                    self._records_writable = True
                     self._progress_state = 'save_restored' if self.game.paused else 'save_ready'
-        self.records = RecordStore.for_puzzle(self.record_directory, self.game.puzzle_id)
-        self.best = self.records.load()
+                    # Import the old best records without inventing completion statistics.
+                    self.profile.import_legacy_scores(self.record_directory)
+                    try:
+                        self.profile.sync_legacy_scores(self.record_directory)
+                    except (OSError, ValueError):
+                        self._save_failed = True
+                        self._progress_state = 'save_error'
+                    else:
+                        self._synced_best = dict(self.profile.best_scores)
+        if not self._records_writable:
+            self._load_readonly_profile()
+        self._load_best()
         self._reset_board_display()
         self._refresh_puzzle_labels()
         self._refresh_save_status()
@@ -1391,70 +1433,184 @@ class MainWindow(QMainWindow):
         self._progress_timer.start()
 
     def _checkpoint_running_game(self) -> None:
-        if self.game.running:
+        if self.game.running or self._save_failed:
             self._save_progress()
 
-    def _save_progress(self) -> None:
+    def _save_progress(self) -> bool:
         if self.progress_store is None:
-            return
+            return False
         try:
-            self.progress_store.save(self.game, self.profile)
+            changed = self.progress_store.save(self.game, self.profile)
+            if changed:
+                self._last_saved = datetime.now().strftime('%H:%M:%S')
+            # Commit counters and best scores together before updating legacy mirrors.
+            if self._save_failed or self.profile.best_scores != self._synced_best:
+                self.profile.sync_legacy_scores(self.record_directory)
+                self._synced_best = dict(self.profile.best_scores)
         except (OSError, ValueError):
+            self._save_failed = True
             self._progress_state = 'save_error'
         else:
+            self._save_failed = False
             self._progress_state = 'save_ready'
         self._refresh_save_status()
+        return not self._save_failed
 
     def _record_move(self, cost: int) -> None:
-        self.profile.add(self.game.puzzle_id, 'moves', cost)
-        if self.game.finished:
-            self.profile.record_completion(self.game)
-            # Save the best result before the deferred victory dialog; closing
-            # during the animation must not lose a completed game.
-            if self.progress_store is not None:
-                try:
-                    self.records.update_best(self.game.steps, int(self.game.elapsed))
-                    self.best = self.records.load()
-                except (OSError, ValueError):
-                    pass  # the existing victory dialog retries and reports failure
+        if self._records_writable:
+            self.profile.add(self.game.puzzle_id, 'moves', cost)
+            if self.game.finished:
+                self.profile.record_completion(self.game)
+                self._new_best = self.profile.remember_best(self.game.puzzle_id, self.game.steps,
+                                                            int(self.game.elapsed))
+                self._load_best()
         self._save_progress()
+        if self.game.finished:
+            self._refresh_puzzle_labels()
+
+    def _recover_progress(self) -> bool:
+        if self._progress_state != 'save_invalid' or self._progress_lock is None:
+            return False
+        t = lambda key: tr(self.language, key)
+        if not self._confirm_discard(t('save_recover'), t('save_recover_confirm')):
+            return False
+        store = ProgressStore(self.record_directory / 'progress.json')
+        try:
+            backup = store.archive_invalid()
+        except OSError:
+            QMessageBox.warning(self, t('save_recover'), t('save_recover_error'))
+            return False
+        self._cancel_pending_win()
+        self.game.reset()
+        self._new_best = False
+        self._last_saved = None
+        self.profile = Profile()
+        self.profile.import_legacy_scores(self.record_directory)
+        self.progress_store = store
+        self._records_writable = True
+        self._load_best()
+        self._reset_board_display()
+        self._refresh_puzzle_labels()
+        saved = self._save_progress()
+        QMessageBox.information(self, t('save_recover'),
+                                tr(self.language, 'save_recover_backup', folder=backup.parent.name) +
+                                ('' if saved else '\n' + t('save_error')))
+        return True
+
+    def _backup_progress(self) -> None:
+        if self.progress_store is None:
+            return
+        t = lambda key: tr(self.language, key)
+        try:
+            backup = self.progress_store.backup(self.game, self.profile)
+        except (OSError, ValueError):
+            QMessageBox.warning(self, t('save_backup'), t('save_backup_error'))
+        else:
+            QMessageBox.information(self, t('save_backup'),
+                                    tr(self.language, 'save_backup_done', folder=backup.parent.name))
+
+    def _open_data_folder(self) -> None:
+        if (not self.record_directory.is_dir() or not QDesktopServices.openUrl(
+                QUrl.fromLocalFile(str(self.record_directory.resolve())))):
+            QMessageBox.warning(self, tr(self.language, 'save_folder'),
+                                tr(self.language, 'save_folder_error'))
 
     def _open_statistics(self) -> None:
+        if self._progress_state == 'save_locked':
+            self._load_readonly_profile()
+            self._load_best()
         t = lambda key, **kwargs: tr(self.language, key, **kwargs)
         dialog = QDialog(self)
         dialog.setWindowTitle(t('stats_title'))
-        dialog.resize(580, 580)
+        dialog.resize(650, 620)
+        dialog.setStyleSheet('QDialog {background:#F4E3C4;} QLabel {color:#62402B;}')
         layout = QVBoxLayout(dialog)
         title = QLabel(t('stats_title'), dialog)
         title.setFont(font(16, True))
         layout.addWidget(title)
-        summary = QLabel(t('stats_summary', wins=sum(row['wins'] for row in self.profile.stats.values())), dialog)
-        wrap_to_available_width(summary)
-        layout.addWidget(summary)
         scroll = QScrollArea(dialog)
         scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         content = QWidget(scroll)
         rows = QVBoxLayout(content)
+        totals = {key: sum(row[key] for row in self.profile.stats.values())
+                  for key in next(iter(self.profile.stats.values()))}
+        completed = sum(bool(row['wins'] or puzzle in self.profile.best_scores)
+                        for puzzle, row in self.profile.stats.items())
+        def duration(seconds):
+            return f'{seconds//3600:02}:{seconds//60%60:02}:{seconds%60:02}'
+        metrics = QGridLayout()
+        for index, (key, value) in enumerate((('stats_wins', totals['wins']),
+                ('stats_completed', f'{completed}/{len(PUZZLES)}'),
+                ('stats_unassisted', totals['unassisted_wins']),
+                ('stats_optimal', totals['optimal_wins']), ('stats_moves', totals['moves']),
+                ('stats_undos', totals['undos']), ('stats_hints', totals['hints']),
+                ('stats_completed_time', duration(totals['completed_seconds'])))):
+            card = QFrame(content)
+            card.setStyleSheet('QFrame{background:#FAEED8;border:1px solid #CFAF80;border-radius:8px;} QLabel{border:0;background:transparent;}')
+            column = QVBoxLayout(card)
+            name = QLabel(t(key), card)
+            wrap_to_available_width(name)
+            number = QLabel(str(value), card)
+            number.setFont(font(17, True))
+            wrap_to_available_width(number)
+            column.addWidget(name)
+            column.addWidget(number)
+            metrics.addWidget(card, index//2, index%2)
+        rows.addLayout(metrics)
+        summary = QLabel(t('stats_summary', wins=totals['wins']), content)
+        wrap_to_available_width(summary)
+        rows.addWidget(summary)
         for puzzle_id, puzzle in PUZZLES.items():
-            heading = QLabel(t('puzzle_' + puzzle_id), content)
+            card = QFrame(content)
+            card.setStyleSheet('QFrame{background:#FAEED8;border:1px solid #CFAF80;border-radius:8px;} QLabel{border:0;background:transparent;}')
+            column = QVBoxLayout(card)
+            row = self.profile.stats[puzzle.id]
+            best = self.profile.best_scores.get(puzzle.id) or RecordStore.for_puzzle(self.record_directory, puzzle.id).load()
+            heading = QLabel(('✓ ' if best or row['wins'] else '○ ') + t('puzzle_' + puzzle_id), card)
             heading.setFont(font(12, True))
             wrap_to_available_width(heading)
-            rows.addWidget(heading)
-            best = RecordStore.for_puzzle(self.record_directory, puzzle.id).load()
+            column.addWidget(heading)
             best_text = (t('best', steps=best['steps'], time=f"{best['seconds']//60:02}:{best['seconds']%60:02}")
                          if best else t('best_none'))
-            row = self.profile.stats[puzzle.id]
-            body = QLabel(best_text + '\n' + t('stats_counts', **row), content)
+            if best:
+                best_text += '\n' + t('stats_gap', steps=max(0, best['steps'] - puzzle.minimum_steps))
+            if puzzle.id in self.profile.fastest_seconds:
+                best_text += '\n' + t('stats_fastest', time=duration(self.profile.fastest_seconds[puzzle.id]))
+            body = QLabel(best_text + '\n' + t('stats_counts', **row), card)
             body.setTextFormat(Qt.TextFormat.PlainText)
             wrap_to_available_width(body)
-            rows.addWidget(body)
-            rows.addSpacing(10)
+            column.addWidget(body)
+            rows.addWidget(card)
         rows.addStretch()
         scroll.setWidget(content)
         layout.addWidget(scroll)
+        status = QLabel(t(self._progress_state), dialog)
+        if self._last_saved is not None:
+            status.setText(status.text() + ' · ' + t('save_last', time=self._last_saved))
+        wrap_to_available_width(status)
+        if self._progress_timer is not None:
+            layout.addWidget(status)
+        buttons = QHBoxLayout()
+        folder = QPushButton(t('save_folder'), dialog)
+        folder.clicked.connect(self._open_data_folder)
+        buttons.addWidget(folder)
+        if self.progress_store is not None:
+            backup = QPushButton(t('save_backup'), dialog)
+            backup.clicked.connect(self._backup_progress)
+            buttons.addWidget(backup)
+        if self._progress_state == 'save_invalid' and self._progress_lock is not None:
+            recover = QPushButton(t('save_recover'), dialog)
+            def recover_and_close():
+                if self._recover_progress():
+                    dialog.accept()
+            recover.clicked.connect(recover_and_close)
+            buttons.addWidget(recover)
+        buttons.addStretch()
         button = QPushButton(t('dialog_ok'), dialog)
         button.clicked.connect(dialog.accept)
-        layout.addWidget(button)
+        buttons.addWidget(button)
+        layout.addLayout(buttons)
         self._exec_preferences_dialog(dialog)
 
     def _open_settings(self) -> None:
@@ -1568,15 +1724,20 @@ class MainWindow(QMainWindow):
     def _show_win_dialog(self) -> None:
         seconds=int(self.game.elapsed)
         score_saved = self._records_writable
-        if score_saved:
+        if self.progress_store is not None:
+            score_saved = self._save_progress() if self._save_failed else True
+        elif self._progress_timer is None and score_saved:
+            # Standalone non-persistent windows (including existing GUI tests).
             try:
-                if self.records.update_best(self.game.steps,seconds):
-                    self.best=self.records.load()
+                if self.records.update_best(self.game.steps, seconds):
+                    self.best = self.records.load()
             except (OSError, ValueError):
-                score_saved=False
+                score_saved = False
         self._update_stats()
         message = tr(self.language, 'win_message', steps=self.game.steps,
                      time=f'{seconds//60:02}:{seconds%60:02}')
+        if self._new_best and score_saved:
+            message += '\n\n' + tr(self.language, 'win_new_best')
         if not score_saved:
             message += '\n\n' + tr(self.language, 'win_save_error')
         dialog = QMessageBox(self)
@@ -1595,7 +1756,8 @@ class MainWindow(QMainWindow):
                              if old != self.game.positions[i]}
             self.board.clear_selection()
             self.board.animate_group(old_positions)
-            self.profile.add(self.game.puzzle_id, 'undos')
+            if self._records_writable:
+                self.profile.add(self.game.puzzle_id, 'undos')
             self._save_progress()
             self._update_stats()
 
@@ -1608,8 +1770,10 @@ class MainWindow(QMainWindow):
         self.chapter_header.setText(t('chapter_title') if puzzle.id == 'classic' else name)
         self.tagline_label.setText(t('puzzle_minimum', steps=puzzle.minimum_steps))
         for puzzle_id, action in self.puzzle_actions.items():
-            action.setText(t('puzzle_menu_item', name=t('puzzle_' + puzzle_id),
-                             steps=PUZZLES[puzzle_id].minimum_steps))
+            label = t('puzzle_menu_item', name=t('puzzle_' + puzzle_id),
+                      steps=PUZZLES[puzzle_id].minimum_steps)
+            action.setText(('✓ ' if self.profile.stats[puzzle_id]['wins'] or
+                            puzzle_id in self.profile.best_scores else '') + label)
             action.setChecked(puzzle_id == puzzle.id)
         self.board.update()
 
@@ -1646,8 +1810,8 @@ class MainWindow(QMainWindow):
             return False
         self._cancel_pending_win()
         self.game.select_puzzle(puzzle_id)
-        self.records = RecordStore.for_puzzle(self.record_directory, puzzle_id)
-        self.best = self.records.load()
+        self._new_best = False
+        self._load_best()
         self._reset_board_display()
         self._refresh_puzzle_labels()
         self._save_progress()
@@ -1667,14 +1831,45 @@ class MainWindow(QMainWindow):
             return
         self._cancel_pending_win()
         self.game.reset()
+        self._new_best = False
         self._reset_board_display()
         self._save_progress()
 
+    def _ask_save_failure(self) -> str:
+        t = lambda key: tr(self.language, key)
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle(t('save_close_title'))
+        dialog.setText(t('save_close_message'))
+        dialog.setIcon(QMessageBox.Icon.Warning)
+        retry = dialog.addButton(t('save_retry'), QMessageBox.ButtonRole.AcceptRole)
+        discard = dialog.addButton(t('save_discard'), QMessageBox.ButtonRole.DestructiveRole)
+        cancel = dialog.addButton(t('save_cancel_close'), QMessageBox.ButtonRole.RejectRole)
+        dialog.setDefaultButton(cancel)
+        dialog.setEscapeButton(cancel)
+        dialog.exec()
+        clicked = dialog.clickedButton()
+        return 'retry' if clicked == retry else 'discard' if clicked == discard else 'cancel'
+
     def closeEvent(self, event) -> None:
-        self._cancel_pending_win()
         if self._progress_timer is not None:
             self._progress_timer.stop()
-        self._save_progress()
+        self._win_timer.stop()
+        self._restart_confirming = True
+        try:
+            while self.progress_store is not None and not self._save_progress():
+                choice = self._ask_save_failure()
+                if choice == 'discard':
+                    break
+                if choice != 'retry':
+                    event.ignore()
+                    if self._progress_timer is not None:
+                        self._progress_timer.start()
+                    return
+        finally:
+            self._restart_confirming = False
+            if self._progress_timer is not None and self._progress_timer.isActive():
+                self._queue_win_dialog()
+        self._cancel_pending_win()
         self.progress_store = None
         if self._progress_lock is not None:
             self._progress_lock.unlock()

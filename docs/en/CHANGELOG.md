@@ -10,6 +10,10 @@
 - Use atomic writes, file locking, bounded file and history sizes, and legal-history replay validation; preserve unreadable or incompatible saves.
 - Introduce CodeQL, Ruff, dependency vulnerability auditing and dependency consistency checks alongside strict functional, executable startup and archive gates.
 - Separate build and release privileges, pin the release source commit, harden local best-score validation, and extend persistence and statistics regression tests.
+- Protect exit on save failure; archive unreadable saves before rebuilding, add manual backups and a data-folder shortcut, and display read-only statistics in other windows.
+- Commit best scores atomically with statistics, retry legacy score synchronization, and skip unchanged snapshots.
+- Redesign the personal records dashboard, add fastest completions, total completed-game time, shortest-path gaps and new-best notifications.
+- Upgrade and pin Pillow 13.0.0 to address known dependency vulnerabilities.
 
 ## V0.8.0 — 2026-11-27
 
