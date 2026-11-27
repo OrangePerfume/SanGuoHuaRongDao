@@ -4,6 +4,8 @@ from huarongdao.gui import run
 
 
 def smoke_test() -> int:
+    from pathlib import Path
+    from tempfile import TemporaryDirectory
     from PySide6.QtGui import QPixmap
     from PySide6.QtWidgets import QApplication
     from shiboken6 import delete
@@ -58,6 +60,26 @@ def smoke_test() -> int:
             if hint is None or hint.remaining != puzzle.minimum_steps:
                 raise RuntimeError(f'Puzzle hint failed: {puzzle.id}')
             window.clear_hint_button.click()
+        # Exercise real persisted state with an isolated directory; never use
+        # the player's data during a packaged self-test.
+        with TemporaryDirectory() as td:
+            window.enable_progress(Path(td))
+            window.select_puzzle('classic')
+            window._make_move(8, 1, 0, 1)
+            expected = window.game.positions
+            window.close()
+            delete(window)
+            window = None
+            window = MainWindow()
+            window.enable_progress(Path(td))
+            if (window.game.positions != expected or window.game.steps != 1
+                    or not window.game.paused or window.profile.stats['classic']['moves'] != 1):
+                raise RuntimeError('Saved game restoration failed')
+            window._pause()
+            window._undo()
+            if window.game.steps or window.profile.stats['classic']['undos'] != 1:
+                raise RuntimeError('Restored undo or statistics failed')
+            window.close()
         return 0
     finally:
         if window is not None:
