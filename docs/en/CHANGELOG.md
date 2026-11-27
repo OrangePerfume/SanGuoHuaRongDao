@@ -2,6 +2,14 @@
 
 # Changelog
 
+## V0.8.0 — 2026-11-27
+
+- Add six classic one-horizontal-general layouts and a top-bar puzzle menu.
+- Display solver-verified shortest paths using the single-cell move-counting rule.
+- Confirm discarding progress before switching; clear timer, undo, selection and hint state; restart the current puzzle.
+- Store best scores per puzzle and preserve the original classic record.
+- Localize puzzle names, prompts and menus in three languages; add solvability and switching regression tests.
+
 ## V0.7.0 — 2026-11-26
 
 - Introduced an original Red Cliffs scene with Sun–Liu alliance banners, retaining the illustrated pieces and wooden board.

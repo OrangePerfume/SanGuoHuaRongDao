@@ -6,10 +6,20 @@ import os
 from pathlib import Path
 import tempfile
 
+from .puzzles import DEFAULT_PUZZLE, PUZZLES
+
 
 class RecordStore:
     def __init__(self, path: Path):
         self.path = Path(path)
+
+    @classmethod
+    def for_puzzle(cls, directory: Path, puzzle_id: str) -> RecordStore:
+        if puzzle_id not in PUZZLES:
+            raise ValueError("Unknown puzzle")
+        # Preserve the original classic score without migration or overwriting it.
+        filename = 'best.json' if puzzle_id == DEFAULT_PUZZLE else f'best-{puzzle_id}.json'
+        return cls(Path(directory) / filename)
 
     def load(self) -> dict[str, int]:
         try:

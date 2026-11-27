@@ -1,12 +1,12 @@
 [简体中文](../../README.md) · [繁體中文](../../docs/zh-TW/README.md) · [English](../../docs/en/README.md)
 
-# Three Kingdoms Klotski — Heng Dao Li Ma (V0.7.0)
+# Three Kingdoms Klotski (V0.8.0)
 
 [![Windows CI](https://github.com/OrangePerfume/SanGuoHuaRongDao/actions/workflows/ci.yml/badge.svg)](https://github.com/OrangePerfume/SanGuoHuaRongDao/actions/workflows/ci.yml) [![MIT License](https://img.shields.io/badge/license-MIT-yellow.svg)](../../LICENSE)
 
 A fully offline sliding-block puzzle for **Windows 10 / 11**, featuring the classic *Heng Dao Li Ma* layout, a richly colored wooden board, and Three Kingdoms character illustrations. It brings back the **gameplay**, not the monochrome display.
 
-**Version: 0.7.0.** Introduces the Red Cliffs backdrop, red-and-gold selection plaque, and redesigned controls.
+**Version: 0.8.0.** Six classic puzzles, verified shortest single-cell paths, and independent best scores.
 
 Settings controls background dimming, animation speed and language. The selection plaque is beside the board; multi-selection retains full names. The hint card displays recommendations and has a separate clear button. Gameplay instructions can be expanded or collapsed.
 
@@ -19,6 +19,10 @@ Settings controls background dimming, animation speed and language. The selectio
 - Use the **Language** button in the upper-right corner to choose **简体中文 / 繁體中文 / English**.
 - Board labels, character names, controls, help, records, and dialogs change instantly, without restarting the game.
 - Simplified Chinese is the default; your last selection is saved. Changing language does not reset the puzzle, undo history, timer, or animation speed.
+
+## Classic puzzles
+
+Use the Puzzle menu to choose Heng Dao Li Ma (116 moves), First to the Goal (47), Side by Side (85), Three Routes (92), The Commander (100), or Encirclement (101). The numbers are shortest paths under the single-piece, single-cell counting rule, not the traditional combined-move count. Heng Dao Li Ma remains the default. Switching confirms discarding current progress; Restart resets only the current puzzle. Each puzzle has its own best score, with the original classic record preserved.
 
 ## Rules
 
@@ -46,7 +50,7 @@ Settings controls background dimming, animation speed and language. The selectio
 
 ## Download and run
 
-Download the version-matched `SanGuoHuaRongDao-v0.7.0-win-x64.zip` from [GitHub Releases](https://github.com/OrangePerfume/SanGuoHuaRongDao/releases). Extract the entire ZIP, then run:
+Download the version-matched `SanGuoHuaRongDao-v0.8.0-win-x64.zip` from [GitHub Releases](https://github.com/OrangePerfume/SanGuoHuaRongDao/releases). Extract the entire ZIP, then run:
 
 `SanGuoHuaRongDao.exe`
 
