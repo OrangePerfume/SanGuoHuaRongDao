@@ -21,6 +21,11 @@ set "P=.venv\Scripts\python.exe"
 echo [2/5] Installing fixed game dependencies and build tool...
 "%P%" -m pip install --disable-pip-version-check -r requirements-build.txt
 if errorlevel 1 exit /b 1
+echo [3/5] Checking dependency consistency and source syntax...
+"%P%" -m pip check
+if errorlevel 1 exit /b 1
+"%P%" -m compileall -q main.py huarongdao tests tools
+if errorlevel 1 exit /b 1
 echo [3/5] Running strict unit and Qt GUI tests...
 "%P%" -X faulthandler tools/run_tests.py --require-qt
 if errorlevel 1 (

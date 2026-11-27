@@ -1,0 +1,110 @@
+name: Security and source quality
+
+on:
+  workflow_call:
+    inputs:
+      checkout_ref:
+        description: Exact source ref to inspect
+        required: true
+        type: string
+      publish_codeql:
+        description: Publish CodeQL alerts to the repository on main pushes
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Python source quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.checkout_ref }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install static checker
+        run: python -m pip install ruff==0.11.13
+      - name: Compile all project Python files
+        run: python -m compileall -q main.py huarongdao tests tools
+      - name: Check syntax and correctness (Ruff)
+        run: python -m ruff check --isolated --target-version py312 --select E9,F63,F7,F82 main.py huarongdao tests tools
+
+  codeql:
+    name: CodeQL (Python)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.checkout_ref }}
+          persist-credentials: false
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: python
+          build-mode: none
+      - name: Analyze Python source
+        id: analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:python
+          output: ${{ runner.temp }}/codeql-results
+          upload: never
+          upload-database: false
+      - name: Save CodeQL SARIF report
+        uses: actions/upload-artifact@v4
+        with:
+          name: codeql-python-sarif
+          path: ${{ runner.temp }}/codeql-results/*.sarif
+          if-no-files-found: error
+          overwrite: true
+      # Fork PRs need no write token; they still run analysis and the strict
+      # findings gate. Only the upstream main push publishes dashboard alerts.
+      - name: Publish CodeQL alerts on main
+        if: ${{ inputs.publish_codeql && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: ${{ runner.temp }}/codeql-results
+          category: /language:python
+      - name: Reject CodeQL findings or incomplete analysis
+        run: |
+          python - "$RUNNER_TEMP/codeql-results" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          files = sorted(Path(sys.argv[1]).glob('*.sarif'))
+          if not files:
+              raise SystemExit('CodeQL gate: SARIF report missing')
+          findings = []
+          for path in files:
+              report = json.loads(path.read_text(encoding='utf-8'))
+              runs = report.get('runs')
+              if report.get('version') != '2.1.0' or not isinstance(runs, list) or not runs:
+                  raise SystemExit(f'CodeQL gate: invalid or empty SARIF: {path.name}')
+              for run in runs:
+                  driver = run.get('tool', {}).get('driver', {})
+                  if 'codeql' not in driver.get('name', '').lower():
+                      raise SystemExit('CodeQL gate: unexpected analysis tool')
+                  if any(inv.get('executionSuccessful') is False for inv in run.get('invocations', [])):
+                      raise SystemExit('CodeQL gate: analysis did not complete successfully')
+                  results = run.get('results')
+                  if not isinstance(results, list):
+                      raise SystemExit('CodeQL gate: results missing or invalid')
+                  for result in results:
+                      findings.append(str(result.get('ruleId', 'unknown rule')))
+          if findings:
+              print('CodeQL findings:', ', '.join(findings))
+              raise SystemExit(f'CodeQL gate: {len(findings)} finding(s)')
+          print('CodeQL gate: no findings in completed SARIF reports')
+          PY
