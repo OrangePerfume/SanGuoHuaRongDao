@@ -6,7 +6,8 @@ import os
 from pathlib import Path
 import tempfile
 
-from .challenge import ChallengeSession, ChallengeSpec
+from .challenge import ChallengeSession, ChallengeSpec, ChallengeStatus
+from .core import won
 from .puzzles import PUZZLES
 
 MAX_BYTES = 4096
@@ -18,14 +19,30 @@ class InvalidChallengeRecord(ValueError):
     pass
 
 
+def _unique_fields(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise InvalidChallengeRecord('Duplicate challenge record field')
+        result[key] = value
+    return result
+
+
 class ChallengeRecords:
     """Caller must hold the application's existing progress.lock to write."""
     def __init__(self, directory: Path, spec: ChallengeSpec):
         self.spec = spec
-        self.path = Path(directory) / f'challenge-{spec.puzzle}-{spec.mode}-{spec.difficulty}.json'
+        self.path = Path(directory) / f'challenge-r{spec.rule_version}-{spec.puzzle}-{spec.mode}-{spec.difficulty}.json'
+
+    def _identity(self) -> dict:
+        return {'schema': 2, 'rule_version': self.spec.rule_version,
+                'puzzle': self.spec.puzzle, 'mode': self.spec.mode,
+                'difficulty': self.spec.difficulty}
 
     def _validate(self, data: object) -> dict[str, int]:
-        if not isinstance(data, dict) or data.get('schema') != 1 or type(data.get('schema')) is not int:
+        if (not isinstance(data, dict) or type(data.get('schema')) is not int
+                or type(data.get('rule_version')) is not int
+                or any(data.get(k) != v for k, v in self._identity().items())):
             raise InvalidChallengeRecord('Unknown challenge record format')
         steps, ms = data.get('steps'), data.get('milliseconds')
         if (type(steps) is not int or not PUZZLES[self.spec.puzzle].minimum_steps <= steps <= MAX_STEPS
@@ -44,7 +61,7 @@ class ChallengeRecords:
         if len(raw) > MAX_BYTES:
             raise InvalidChallengeRecord('Challenge record too large')
         try:
-            return self._validate(json.loads(raw.decode('utf-8')))
+            return self._validate(json.loads(raw.decode('utf-8'), object_pairs_hook=_unique_fields))
         except (ValueError, UnicodeError, RecursionError) as exc:
             raise InvalidChallengeRecord('Invalid challenge record') from exc
 
@@ -53,12 +70,12 @@ class ChallengeRecords:
         return (ms, steps) if self.spec.mode == 'time' else (steps, ms)
 
     def save_success(self, session: ChallengeSession) -> bool:
-        if session.spec != self.spec or session.status != 'success' or not session.game.finished:
+        snapshot = session.result
+        if (snapshot is None or snapshot.spec != self.spec
+                or snapshot.status != ChallengeStatus.SUCCESS or not won(snapshot.positions)):
             raise ValueError('Only completed matching challenges can be recorded')
-        if session.game.undo_count or session.game.hint_count:
-            raise ValueError('Assisted challenge result')
-        result = self._validate({'schema': 1, 'steps': session.game.steps,
-                                 'milliseconds': int(session.elapsed * 1000)})
+        result = self._validate({**self._identity(), 'steps': snapshot.steps,
+                                 'milliseconds': snapshot.milliseconds})
         old = self.load()  # Corrupt files are preserved, not overwritten.
         if old and self._rank(result) >= self._rank(old):
             return False
@@ -68,7 +85,7 @@ class ChallengeRecords:
             with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=self.path.parent,
                                              prefix='.challenge-', suffix='.tmp', delete=False) as dest:
                 tmp = Path(dest.name)
-                json.dump({'schema': 1, **result}, dest)
+                json.dump({**self._identity(), **result}, dest)
                 dest.flush()
                 os.fsync(dest.fileno())
             os.replace(tmp, self.path)
