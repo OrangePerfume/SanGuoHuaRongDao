@@ -1,12 +1,12 @@
 [简体中文](../../README.md) · [繁體中文](../../docs/zh-TW/README.md) · [English](../../docs/en/README.md)
 
-# Three Kingdoms Klotski (V0.9.0)
+# Three Kingdoms Klotski (V0.10.0)
 
 [![Windows CI](https://github.com/OrangePerfume/SanGuoHuaRongDao/actions/workflows/ci.yml/badge.svg)](https://github.com/OrangePerfume/SanGuoHuaRongDao/actions/workflows/ci.yml) [![MIT License](https://img.shields.io/badge/license-MIT-yellow.svg)](../../LICENSE)
 
 A fully offline sliding-block puzzle for **Windows 10 / 11**, featuring the classic *Heng Dao Li Ma* layout, a richly colored wooden board, and Three Kingdoms character illustrations. It brings back the **gameplay**, not the monochrome display.
 
-**Version: 0.9.0.** Automatic saves, game resumption, personal records, and security and quality gates.
+**Version: 0.10.0.** Time and move challenges with four difficulty levels.
 
 Settings controls background dimming, animation speed and language. The selection plaque is beside the board; multi-selection retains full names. The hint card displays recommendations and has a separate clear button. Gameplay instructions can be expanded or collapsed.
 
@@ -31,6 +31,21 @@ The current puzzle is saved after moves, undo, pause, hint use, puzzle changes, 
 Personal records lists earlier best scores for all six puzzles and cumulative completions, unassisted completions, unassisted optimal completions, moves, undos, and hints. The new counters start with this version; earlier best scores are retained. The versioned `progress.json` is stored in the local user data directory. Unreadable files are preserved, and only one window can write a given save.
 
 If saving fails on exit, retry, exit without saving, or cancel. After explicit confirmation, archive an unreadable save in a unique backup folder and start a new record without losing legacy best scores. The personal records dashboard includes fastest completions, total time of recorded completions, distance from the shortest path, manual backups and the data folder. Other windows display saved statistics read-only and do not count local actions.
+
+## Challenge mode
+
+- Add a separate challenge entry for time and move challenges across all six classic puzzles.
+- Offer Beginner, Standard, Expert and Extreme limits scaled to each puzzle’s minimum single-cell move count.
+- Start the countdown after interface preparation; disable pause, undo and solution hints. Every cell moved per piece counts, including group moves.
+- Fail at the time deadline or upon exhausting moves without solving; solving on the final allowed move succeeds.
+- Show the outcome and independent best result. Rank time challenges by time first and move challenges by moves first, breaking ties by the other metric.
+- Store results by puzzle, mode and difficulty with atomic writes, bounded validation and the existing single-writer lock; preserve invalid files and support retries.
+- Active challenges are not resumable and never modify classic saves, undo history or personal statistics. Return to the preserved classic game.
+- Add a challenge progress card, low-budget warning and separate result dialog using immutable results, with retry and return actions.
+- Add a record overview for all 48 combinations, distinguishing missing and unreadable records.
+- Protect classic saves before entering challenges with retry and cancel options; confirm read-only play and archive invalid records only with consent.
+- Start timing after interface preparation, constrain group-move previews and distinguish record read and write errors.
+
 
 ## Rules
 
@@ -58,7 +73,7 @@ If saving fails on exit, retry, exit without saving, or cancel. After explicit c
 
 ## Download and run
 
-Download the version-matched `SanGuoHuaRongDao-v0.9.0-win-x64.zip` from [GitHub Releases](https://github.com/OrangePerfume/SanGuoHuaRongDao/releases). Extract the entire ZIP, then run:
+Download the version-matched `SanGuoHuaRongDao-v0.10.0-win-x64.zip` from [GitHub Releases](https://github.com/OrangePerfume/SanGuoHuaRongDao/releases). Extract the entire ZIP, then run:
 
 `SanGuoHuaRongDao.exe`
 
