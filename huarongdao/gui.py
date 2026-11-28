@@ -16,13 +16,17 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QFrame, QHBoxLayout, QLabel, QMainWindow, QMessageBox,
     QMenu, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
-    QDialog, QDialogButtonBox, QFormLayout, QSlider, QGridLayout,
+    QDialog, QDialogButtonBox, QFormLayout, QSlider, QGridLayout, QProgressBar,
+    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
 )
 
 from . import __version__
 from .core import (BOARD_W, BOARD_H, PIECES, display_hint_rectangles,
-                   occupied_by, shifted_group, target_for_click)
+                   occupied_by, shifted_group, target_for_click, destination_footprints)
 from .model import GameModel
+from .challenge import ChallengeSession, ChallengeSpec, MODES, DIFFICULTIES
+from .challenge_records import ChallengeRecords, InvalidChallengeRecord
+from .challenge_ui import PreparationClock, archive_invalid_record, read_challenge_overview
 from .hint import NextMove, next_move, format_hint
 from .motion import ANIMATION_DURATIONS_MS, MotionTrack
 from .records import RecordStore
@@ -168,6 +172,7 @@ class BoardWidget(QWidget):
         self._pressed_index: int | None = None
         self._preview: dict[int, int] | None = None
         self._motion = MotionTrack()
+        self.challenge_budget: int | None = None
         self._speed = "normal"
         self._animation = QVariantAnimation(self)
         # Qt requires explicit interpolation endpoints; without them the
@@ -217,12 +222,18 @@ class BoardWidget(QWidget):
         if not self._selected or not self._targets_visible or self.game.paused or self.game.finished:
             return ()
         x0, y0, unit = self._layout()
+        if self.challenge_budget is not None:
+            indices = tuple(sorted(self._selected))
+            rects = tuple(dict.fromkeys((x, y, w, h)
+                for dest, footprints in destination_footprints(self.game.positions, indices)
+                if dest.amount * len(indices) <= self.challenge_budget
+                for _, x, y, w, h in footprints))
+        else:
+            rects = display_hint_rectangles(self.game.positions, tuple(sorted(self._selected)))
         return tuple(
             QRectF(x0 + cx * unit + 7, y0 + cy * unit + 7,
                    width * unit - 14, height * unit - 14)
-            for cx, cy, width, height in display_hint_rectangles(
-                self.game.positions, tuple(sorted(self._selected))
-            )
+            for cx, cy, width, height in rects
         )
 
     def _displayed_piece_rect(self, index: int,
@@ -337,6 +348,10 @@ class BoardWidget(QWidget):
 
     def _request_move(self, dx: int, dy: int, count: int) -> None:
         indices = tuple(sorted(self._selected))
+        if self.challenge_budget is not None and indices:
+            count = min(count, self.challenge_budget // len(indices))
+        if count <= 0:
+            return
         if len(indices) == 1:
             self.move_requested.emit(indices[0], dx, dy, count)
         elif len(indices) > 1:
@@ -547,6 +562,8 @@ class BoardWidget(QWidget):
             dx, dy, count = direction
             indices = tuple(sorted(self._selected))
             candidate = self.game.positions
+            if self.challenge_budget is not None and indices:
+                count = min(count, self.challenge_budget // len(indices))
             for _ in range(count):
                 next_state = shifted_group(candidate, indices, dx, dy)
                 if next_state is None:
@@ -574,7 +591,8 @@ class BoardWidget(QWidget):
             cell = self._empty_target_cell(event.position())
             if cell is not None:
                 move = target_for_click(self.game.positions, tuple(sorted(self._selected)), *cell)
-                if move is not None:
+                if move is not None and (self.challenge_budget is None or
+                        move[2] * len(self._selected) <= self.challenge_budget):
                     self._request_move(*move)
         # 仅在实际发生位移后取消选择；无效目标不打断操作。
         if self.game.positions != original:
@@ -774,6 +792,21 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.game=GameModel()
+        self.challenge: ChallengeSession | None = None
+        self._classic_game: GameModel | None = None
+        self._classic_new_best = False
+        self._challenge_best = {}
+        self._challenge_saved = False
+        self._challenge_error = False
+        self._challenge_read_error = False
+        self._challenge_invalid_record = False
+        self._challenge_write_error = False
+        self._challenge_readonly = False
+        self._challenge_new_best = False
+        self._challenge_previous_best = {}
+        self._challenge_result_shown = False
+        self._challenge_dialog = None
+        self._challenge_transition = False
         self.profile = Profile()
         self.progress_store: ProgressStore | None = None
         self._progress_state = 'save_ready'
@@ -811,6 +844,7 @@ class MainWindow(QMainWindow):
         self._win_timer.timeout.connect(self._win)
         self.board.animation_settled.connect(self._queue_win_dialog)
         self.board.animation_settled.connect(self._refresh_hint)
+        self.board.animation_settled.connect(self._queue_challenge_result)
         self.timer=QTimer(self)
         self.timer.setInterval(250)
         self.timer.timeout.connect(self._update_stats)
@@ -981,6 +1015,39 @@ class MainWindow(QMainWindow):
         self.stats_button.setFont(font(10, True))
         self.stats_button.clicked.connect(self._open_statistics)
         progress_layout.addWidget(self.stats_button)
+        self.challenge_button = dark_button('', '#79532E', progress_card)
+        self.challenge_button.setObjectName('challengeButton')
+        self.challenge_button.setMinimumHeight(34)
+        self.challenge_button.setFont(font(10, True))
+        self.challenge_button.clicked.connect(self._choose_challenge)
+        progress_layout.addWidget(self.challenge_button)
+        self.challenge_overview = dark_button('', '#79532E', progress_card)
+        self.challenge_overview.clicked.connect(self._open_challenge_overview)
+        progress_layout.addWidget(self.challenge_overview)
+        self.challenge_panel, challenge_layout = self._section_card(progress_card)
+        self.challenge_status = QLabel(self.challenge_panel)
+        self.challenge_status.setTextFormat(Qt.TextFormat.PlainText)
+        self.challenge_status.setFont(font(11, True))
+        wrap_to_available_width(self.challenge_status)
+        self.challenge_status.setStyleSheet('color:#79532E;background:transparent;')
+        challenge_layout.addWidget(self.challenge_status)
+        self.challenge_remaining = QLabel(self.challenge_panel)
+        self.challenge_remaining.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.challenge_remaining.setFont(font(24, True))
+        challenge_layout.addWidget(self.challenge_remaining)
+        self.challenge_bar = QProgressBar(self.challenge_panel)
+        self.challenge_bar.setTextVisible(False)
+        self.challenge_bar.setFixedHeight(9)
+        challenge_layout.addWidget(self.challenge_bar)
+        self.challenge_summary = dark_button('', '#79532E', self.challenge_panel)
+        self.challenge_summary.clicked.connect(self._show_challenge_result)
+        challenge_layout.addWidget(self.challenge_summary)
+        progress_layout.addWidget(self.challenge_panel)
+        self.challenge_retry = dark_button('', '#79532E', progress_card)
+        self.challenge_retry.clicked.connect(self._retry_challenge_record)
+        progress_layout.addWidget(self.challenge_retry)
+        self.challenge_panel.hide()
+        self.challenge_retry.hide()
         self.save_status = QLabel(progress_card)
         self.save_status.setFont(font(9))
         self.save_status.setStyleSheet('color:#775136; background:transparent;')
@@ -1186,6 +1253,7 @@ class MainWindow(QMainWindow):
         self.board.setFocus()
 
     def _apply_language(self) -> None:
+        self._close_challenge_dialog()
         language = self.language
         t = lambda key, **kwargs: tr(language, key, **kwargs)
         self.setWindowTitle(t('window_title'))
@@ -1212,6 +1280,9 @@ class MainWindow(QMainWindow):
         self.time_caption.setText(t('time'))
         self.controls_label.setText(t('controls'))
         self.stats_button.setText(t('stats_title'))
+        self.challenge_retry.setText(t('challenge_retry'))
+        self.challenge_overview.setText(t('challenge_overview'))
+        self.challenge_summary.setText(t('challenge_summary'))
         self._refresh_save_status()
         self.reset_button.setText(t('restart'))
         self.undo_button.setText(t('undo'))
@@ -1298,7 +1369,391 @@ class MainWindow(QMainWindow):
             if self.best else tr(self.language, 'best_none')
         )
         self._refresh_hint()
+        self._refresh_challenge()
         self.board.update()
+
+    @staticmethod
+    def _challenge_time(seconds: int) -> str:
+        return f'{seconds//60:02}:{seconds%60:02}'
+
+    def _choose_challenge(self) -> None:
+        if self._challenge_transition:
+            return
+        if self.challenge is not None:
+            if self._confirm_challenge_leave():
+                self._leave_challenge()
+            return
+        t = lambda key, **kwargs: tr(self.language, key, **kwargs)
+        dialog = QDialog(self)
+        dialog.setWindowTitle(t('challenge_title'))
+        dialog.setMinimumWidth(320)
+        layout = QVBoxLayout(dialog)
+        form = QFormLayout()
+        puzzle, mode, difficulty = QComboBox(dialog), QComboBox(dialog), QComboBox(dialog)
+        for key in PUZZLES:
+            puzzle.addItem(t('puzzle_' + key), key)
+        puzzle.setCurrentIndex(puzzle.findData(self.game.puzzle_id))
+        for key in MODES:
+            mode.addItem(t('challenge_' + key), key)
+        for key in DIFFICULTIES:
+            difficulty.addItem(t('challenge_' + key), key)
+        difficulty.setCurrentIndex(1)
+        for key, widget in (('puzzle_button', puzzle), ('challenge_mode', mode), ('challenge_difficulty', difficulty)):
+            form.addRow(t(key), widget)
+        layout.addLayout(form)
+        details = QLabel(dialog)
+        wrap_to_available_width(details)
+        layout.addWidget(details)
+        def chosen():
+            return ChallengeSpec(puzzle.currentData(), mode.currentData(), difficulty.currentData())
+        def update_details(_index=0):
+            spec = chosen()
+            limit = self._challenge_time(spec.limit) if spec.mode == 'time' else str(spec.limit)
+            text = t('challenge_limit_' + spec.mode, limit=limit) + '\n' + t('challenge_rules')
+            try:
+                best = ChallengeRecords(self.record_directory, spec).load()
+            except (OSError, ValueError):
+                text += '\n' + t('challenge_read_error')
+            else:
+                if best:
+                    text += '\n' + self._challenge_best_text(best)
+            details.setText(text)
+        for combo in (puzzle, mode, difficulty):
+            combo.currentIndexChanged.connect(update_details)
+        update_details()
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, dialog)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText(t('challenge_start'))
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText(t('confirm_no'))
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        if self._exec_preferences_dialog(dialog) == QDialog.DialogCode.Accepted:
+            self._start_challenge(chosen())
+
+    def _start_challenge(self, spec: ChallengeSpec, clock=None) -> bool:
+        if self._challenge_transition:
+            return False
+        self._challenge_transition = True
+        try:
+            return self._prepare_challenge(spec, clock)
+        finally:
+            self._challenge_transition = False
+            self._queue_win_dialog()
+
+    def _prepare_challenge(self, spec: ChallengeSpec, clock=None) -> bool:
+        t = lambda key: tr(self.language, key)
+        writable = self._records_writable and self._progress_lock is not None
+        if not writable and not self._confirm_discard(t('challenge_title'), t('challenge_readonly_confirm')):
+            return False
+        store = ChallengeRecords(self.record_directory, spec)
+        best, read_error, invalid = self._read_challenge_best(store)
+        if invalid and writable and self._confirm_discard(t('challenge_recover'), t('challenge_recover_confirm')):
+            try:
+                archive_invalid_record(store)
+            except OSError:
+                QMessageBox.warning(self, t('challenge_recover'), t('challenge_recover_error'))
+            best, read_error, invalid = self._read_challenge_best(store)
+        if self.challenge is None:
+            was_running = self.game.running
+            if was_running:
+                self.game.toggle_pause()
+            # Never leave a writable classic game without a successful save
+            # unless the player explicitly chooses to proceed without saving.
+            while self.progress_store is not None and not self._save_progress():
+                choice = self._ask_save_failure(for_challenge=True)
+                if choice == 'discard':
+                    break
+                if choice != 'retry':
+                    if was_running:
+                        self.game.toggle_pause()
+                    self._update_stats()
+                    return False
+            self._classic_game = self.game
+            self._classic_new_best = self._new_best
+        else:
+            self.challenge.abandon()
+        self._cancel_pending_win()
+        self._close_challenge_dialog()
+        # The clock is frozen only while preparing the board and widgets.
+        ready_clock = PreparationClock() if clock is None else PreparationClock(clock)
+        self.challenge = ChallengeSession(spec, ready_clock)
+        self.game = self.challenge.game
+        self.board.game = self.game
+        self._challenge_saved = False
+        self._challenge_read_error = read_error
+        self._challenge_invalid_record = invalid
+        self._challenge_write_error = False
+        self._challenge_readonly = not writable
+        self._challenge_error = read_error
+        self._challenge_new_best = False
+        self._challenge_previous_best = best.copy()
+        self._challenge_best = best
+        self._challenge_result_shown = False
+        self._reset_board_display()
+        self._refresh_puzzle_labels()
+        ready_clock.start()
+        self._update_stats()
+        return True
+
+    @staticmethod
+    def _read_challenge_best(store):
+        try:
+            return store.load(), False, False
+        except InvalidChallengeRecord:
+            return {}, True, True
+        except OSError:
+            return {}, True, False
+
+    def _confirm_challenge_leave(self) -> bool:
+        if self.challenge is None:
+            return True
+        self._refresh_challenge()
+        if self.challenge.status != 'active' and not (self.challenge.status == 'success' and not self._challenge_saved and not self._challenge_readonly):
+            return True
+        t = lambda key: tr(self.language, key)
+        return self._confirm_discard(t('challenge_title'), t('challenge_leave_confirm' if self.challenge.status == 'active' else 'challenge_unsaved_confirm'))
+
+    def _leave_challenge(self) -> None:
+        if self.challenge is None:
+            return
+        self._close_challenge_dialog()
+        self.challenge.abandon()
+        self.challenge = None
+        self.board.challenge_budget = None
+        self.game = self._classic_game
+        self._classic_game = None
+        self.board.game = self.game
+        self._new_best = self._classic_new_best
+        self._load_best()
+        self._reset_board_display()
+        self._refresh_puzzle_labels()
+        self._refresh_save_status()
+
+    def _challenge_best_text(self, best: dict) -> str:
+        ms = best['milliseconds']
+        return tr(self.language, 'challenge_best', steps=best['steps'],
+                  time=f'{self._challenge_time(ms//1000)}.{ms%1000:03}')
+
+    def _retry_challenge_record(self) -> None:
+        if self.challenge is None or self.challenge.status != 'success' or self._challenge_readonly:
+            return
+        store = ChallengeRecords(self.record_directory, self.challenge.spec)
+        _, read_error, invalid = self._read_challenge_best(store)
+        self._challenge_read_error, self._challenge_invalid_record = read_error, invalid
+        if invalid:
+            t = lambda key: tr(self.language, key)
+            if not self._confirm_discard(t('challenge_recover'), t('challenge_recover_confirm')):
+                return
+            try:
+                archive_invalid_record(store)
+            except OSError:
+                QMessageBox.warning(self, t('challenge_recover'), t('challenge_recover_error'))
+                return
+        self._save_challenge_result()
+        self._refresh_challenge()
+
+    def _save_challenge_result(self) -> None:
+        if self._challenge_saved or self.challenge is None or self.challenge.status != 'success':
+            return
+        if self._challenge_readonly or not self._records_writable or self._progress_lock is None:
+            return
+        store = ChallengeRecords(self.record_directory, self.challenge.spec)
+        self._challenge_best, self._challenge_read_error, self._challenge_invalid_record = self._read_challenge_best(store)
+        self._challenge_write_error = False
+        if not self._challenge_read_error:
+            try:
+                improved = store.save_success(self.challenge)
+            except (OSError, ValueError):
+                self._challenge_write_error = True
+            else:
+                self._challenge_saved = True
+                self._challenge_previous_best = self._challenge_best.copy()
+                self._challenge_new_best = self._challenge_new_best or improved
+                snapshot = self.challenge.result
+                if improved:
+                    self._challenge_best = {'steps': snapshot.steps, 'milliseconds': snapshot.milliseconds}
+        self._challenge_error = self._challenge_read_error or self._challenge_write_error
+
+    def _refresh_challenge(self) -> None:
+        active = self.challenge is not None
+        t = lambda key, **kwargs: tr(self.language, key, **kwargs)
+        self.challenge_button.setText(t('challenge_return' if active else 'challenge_title'))
+        self.reset_button.setText(t('challenge_restart' if active else 'restart'))
+        self.challenge_panel.setVisible(active)
+        self.challenge_retry.setVisible(False)
+        self.challenge_overview.setEnabled(not active)
+        self.puzzle_button.setEnabled(not active)
+        self.stats_button.setEnabled(not active)
+        self.hint_card.setVisible(not active)
+        if not active:
+            self.board.challenge_budget = None
+            self.board.setEnabled(True)
+            self.save_status.setVisible(self._progress_timer is not None)
+            return
+        session = self.challenge
+        status = session.poll()
+        snapshot = session.result
+        if status == 'success' and not self._challenge_saved and not self._challenge_error:
+            self._save_challenge_result()
+        self.board.challenge_budget = session.remaining if session.spec.mode == 'steps' else None
+        if snapshot is not None:
+            if self.board._selected:
+                self.board.clear_selection()
+            self.board._pressed_index = self.board._pressed_pos = self.board._preview = None
+        self.board.setEnabled(status == 'active')
+        self.save_status.hide()
+        self.undo_button.setEnabled(False)
+        self.pause_button.setEnabled(False)
+        self.hint_button.setEnabled(False)
+        steps = snapshot.steps if snapshot is not None else self.game.steps
+        elapsed = snapshot.milliseconds // 1000 if snapshot is not None else int(session.elapsed)
+        self.steps_label.setText(str(steps))
+        self.time_label.setText(self._challenge_time(elapsed))
+        remaining = session.remaining
+        value = self._challenge_time(remaining) if session.spec.mode == 'time' else str(remaining)
+        text = t('challenge_' + session.spec.mode) + ' · ' + t('challenge_' + session.spec.difficulty)
+        text += '\n' + t('challenge_remaining_' + session.spec.mode, remaining=value)
+        text += '\n' + t('challenge_' + status)
+        if self._challenge_readonly:
+            text += '\n' + t('challenge_readonly')
+        if self._challenge_read_error:
+            text += '\n' + t('challenge_read_error')
+        if self._challenge_write_error:
+            text += '\n' + t('challenge_write_error')
+        self.challenge_retry.setVisible(status == 'success' and self._challenge_error and not self._challenge_readonly)
+        self.challenge_status.setText(text)
+        self.challenge_remaining.setText(value)
+        warning = remaining * 5 <= session.spec.limit
+        color = '#963C2D' if warning else '#396751'
+        if self.challenge_bar.property('warning') != warning:
+            self.challenge_bar.setProperty('warning', warning)
+            self.challenge_remaining.setStyleSheet(f'color:{color};background:transparent;')
+            self.challenge_bar.setStyleSheet(f'QProgressBar {{background:#DDC7A3;border:0;border-radius:4px;}} QProgressBar::chunk {{background:{color};border-radius:4px;}}')
+        self.challenge_bar.setRange(0, session.spec.limit)
+        self.challenge_bar.setValue(remaining)
+        self.challenge_summary.setVisible(snapshot is not None)
+        self.best_label.setText(self._challenge_best_text(self._challenge_best) if self._challenge_best else t('challenge_no_best'))
+        self._queue_challenge_result()
+
+    def _close_challenge_dialog(self):
+        dialog = self._challenge_dialog
+        self._challenge_dialog = None
+        if dialog is not None:
+            dialog.close()
+
+    def _queue_challenge_result(self):
+        if (self.challenge is None or self.challenge.result is None or self._challenge_result_shown
+                or self._challenge_transition or self._restart_confirming or self.board._motion.starts
+                or not self.isVisible()):
+            return
+        if self.challenge.status == 'success' and not self._challenge_saved and not self._challenge_error and not self._challenge_readonly:
+            self._save_challenge_result()
+        self._show_challenge_result()
+
+    def _show_challenge_result(self):
+        if self.challenge is None or self.challenge.result is None or self.board._motion.starts:
+            return
+        if self._challenge_dialog is not None:
+            self._challenge_dialog.raise_()
+            return
+        snapshot = self.challenge.result
+        t = lambda key, **kw: tr(self.language, key, **kw)
+        dialog = QDialog(self)
+        dialog.setWindowTitle(t('challenge_summary'))
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        dialog.setStyleSheet('QDialog {background:#F4E3C4;} QLabel {color:#62402B;}')
+        dialog.resize(420, 300)
+        layout = QVBoxLayout(dialog)
+        heading = QLabel(t('challenge_' + snapshot.status))
+        heading.setFont(font(18, True))
+        heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(heading)
+        ms = snapshot.milliseconds
+        details = [t('puzzle_' + snapshot.spec.puzzle), t('challenge_' + snapshot.spec.mode) + ' · ' + t('challenge_' + snapshot.spec.difficulty),
+                   t('challenge_result', steps=snapshot.steps, time=f'{self._challenge_time(ms//1000)}.{ms%1000:03}'),
+                   t('challenge_limit_' + snapshot.spec.mode, limit=self._challenge_time(snapshot.spec.limit) if snapshot.spec.mode == 'time' else str(snapshot.spec.limit)),
+                   t('challenge_minimum', steps=PUZZLES[snapshot.spec.puzzle].minimum_steps)]
+        if self._challenge_new_best:
+            details.append(t('win_new_best'))
+            old = self._challenge_previous_best
+            if old:
+                delta_ms = old['milliseconds'] - ms
+                delta_steps = old['steps'] - snapshot.steps
+                if delta_ms > 0 and (snapshot.spec.mode == 'time' or delta_steps <= 0):
+                    details.append(t('challenge_improved_time', time=f'{delta_ms / 1000:.3f}'))
+                elif delta_steps > 0:
+                    details.append(t('challenge_improved_steps', steps=delta_steps))
+        if self._challenge_readonly:
+            details.append(t('challenge_readonly'))
+        if self._challenge_error:
+            details.append(t('challenge_read_error' if self._challenge_read_error else 'challenge_write_error'))
+        label = QLabel('\n'.join(details))
+        wrap_to_available_width(label)
+        layout.addWidget(label)
+        def action(callback):
+            self._close_challenge_dialog()
+            callback()
+        for key, callback in (('challenge_restart', self._restart), ('challenge_other', self._other_challenge), ('challenge_return', self._choose_challenge)):
+            button = dark_button(t(key), '#79532E', dialog)
+            button.clicked.connect(lambda checked=False, cb=callback: action(cb))
+            layout.addWidget(button)
+        if self._challenge_error and not self._challenge_readonly and snapshot.status == 'success':
+            retry = dark_button(t('challenge_retry'), '#79532E', dialog)
+            retry.clicked.connect(lambda: action(self._retry_challenge_record))
+            layout.addWidget(retry)
+        done = QPushButton(t('dialog_ok'), dialog)
+        done.clicked.connect(dialog.close)
+        layout.addWidget(done)
+        dialog.finished.connect(lambda _code: self._forget_challenge_dialog(dialog))
+        self._challenge_dialog = dialog
+        self._challenge_result_shown = True
+        dialog.show()
+
+    def _forget_challenge_dialog(self, dialog):
+        if self._challenge_dialog is dialog:
+            self._challenge_dialog = None
+
+    def _other_challenge(self):
+        if self._confirm_challenge_leave():
+            self._leave_challenge()
+            self._choose_challenge()
+
+    def _open_challenge_overview(self):
+        if self.challenge is not None:
+            return
+        t = lambda key, **kw: tr(self.language, key, **kw)
+        records = read_challenge_overview(self.record_directory)
+        dialog = QDialog(self)
+        dialog.setWindowTitle(t('challenge_overview'))
+        dialog.resize(720, 520)
+        dialog.setStyleSheet('QDialog {background:#F4E3C4;} QLabel {color:#62402B;}')
+        layout = QVBoxLayout(dialog)
+        completed = sum(bool(best) for _, best in records)
+        label = QLabel(t('challenge_completed', done=completed, total=len(records)))
+        label.setFont(font(14, True))
+        layout.addWidget(label)
+        bar = QProgressBar(dialog)
+        bar.setRange(0, len(records))
+        bar.setValue(completed)
+        layout.addWidget(bar)
+        table = QTableWidget(len(records), 4, dialog)
+        table.setHorizontalHeaderLabels([t('puzzle_button'), t('challenge_mode'), t('challenge_difficulty'), t('challenge_overview')])
+        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        table.verticalHeader().hide()
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        for row, (spec, best) in enumerate(records):
+            values = [t('puzzle_' + spec.puzzle), t('challenge_' + spec.mode), t('challenge_' + spec.difficulty),
+                      self._challenge_best_text(best) if best else t('challenge_read_error' if best is None else 'challenge_no_best')]
+            for col, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setToolTip(value)
+                table.setItem(row, col, item)
+        table.resizeRowsToContents()
+        layout.addWidget(table)
+        done = QPushButton(t('dialog_ok'), dialog)
+        done.clicked.connect(dialog.accept)
+        layout.addWidget(done)
+        self._exec_preferences_dialog(dialog)
 
     def _clear_hint(self) -> None:
         self._hint_snapshot = None
@@ -1310,7 +1765,7 @@ class MainWindow(QMainWindow):
                 (self._hint_snapshot != self.game.positions or self.game.paused or self.game.finished)):
             self._clear_hint()
         active = self._hint_snapshot is not None
-        self.hint_button.setEnabled(not self.game.paused and not self.game.finished
+        self.hint_button.setEnabled(self.challenge is None and not self.game.paused and not self.game.finished
                                     and not self.board._motion.starts)
         self.hint_button.setText(tr(self.language, 'solution_button'))
         self.clear_hint_button.setEnabled(active)
@@ -1328,7 +1783,7 @@ class MainWindow(QMainWindow):
         self.board.update()
 
     def _request_hint(self) -> None:
-        if self.game.paused or self.game.finished or self.board._motion.starts:
+        if self.challenge is not None or self.game.paused or self.game.finished or self.board._motion.starts:
             return
         self._next_hint = next_move(self.game.positions)
         if self._next_hint is not None:
@@ -1433,14 +1888,14 @@ class MainWindow(QMainWindow):
         self._progress_timer.start()
 
     def _checkpoint_running_game(self) -> None:
-        if self.game.running or self._save_failed:
+        if (self.challenge is None and self.game.running) or self._save_failed:
             self._save_progress()
 
     def _save_progress(self) -> bool:
         if self.progress_store is None:
             return False
         try:
-            changed = self.progress_store.save(self.game, self.profile)
+            changed = self.progress_store.save(self._classic_game if self.challenge is not None else self.game, self.profile)
             if changed:
                 self._last_saved = datetime.now().strftime('%H:%M:%S')
             # Commit counters and best scores together before updating legacy mirrors.
@@ -1676,25 +2131,33 @@ class MainWindow(QMainWindow):
 
     def _make_move(self,index:int,dx:int,dy:int,count:int) -> None:
         old=self.game.positions[index]
-        changed=self.game.move(index,dx,dy,count)
+        changed=(self.challenge.move((index,), dx, dy, count) if self.challenge is not None
+                 else self.game.move(index,dx,dy,count))
         if changed:
             self.board.hide_targets()
             self.board.animate(index,old)
-            self._record_move(changed)
+            if self.challenge is None:
+                self._record_move(changed)
+                self._update_stats()
+                if self.game.finished:
+                    self._schedule_win()
+        if self.challenge is not None:
             self._update_stats()
-            if self.game.finished:
-                self._schedule_win()
 
     def _make_group_move(self, indices: tuple[int, ...], dx: int, dy: int, count: int) -> None:
         original = {i: self.game.positions[i] for i in indices}
-        changed = self.game.move_group(indices, dx, dy, count)
+        changed = (self.challenge.move(indices, dx, dy, count) if self.challenge is not None
+                   else self.game.move_group(indices, dx, dy, count))
         if changed:
             self.board.hide_targets()
             self.board.animate_group(original)
-            self._record_move(len(indices) * changed)
+            if self.challenge is None:
+                self._record_move(len(indices) * changed)
+                self._update_stats()
+                if self.game.finished:
+                    self._schedule_win()
+        if self.challenge is not None:
             self._update_stats()
-            if self.game.finished:
-                self._schedule_win()
 
     def _schedule_win(self) -> None:
         """Schedule a single notification for the current completed game."""
@@ -1705,7 +2168,7 @@ class MainWindow(QMainWindow):
         # Start the short post-animation delay only after motion has settled.
         # A speed change can retarget motion, so do not use a fixed duration.
         if (self._win_pending and self.game.finished
-                and not self._restart_confirming and not self.board._motion.starts
+                and not self._restart_confirming and not self._challenge_transition and not self.board._motion.starts
                 and not self._win_timer.isActive()):
             self._win_timer.start()
 
@@ -1749,6 +2212,8 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
     def _undo(self) -> None:
+        if self.challenge is not None:
+            return
         before = self.game.positions
         if self.game.undo():
             self._cancel_pending_win()
@@ -1799,7 +2264,7 @@ class MainWindow(QMainWindow):
     def select_puzzle(self, puzzle_id: str) -> bool:
         if puzzle_id not in PUZZLES:
             raise ValueError('Unknown puzzle')
-        if puzzle_id == self.game.puzzle_id:
+        if self.challenge is not None or puzzle_id == self.game.puzzle_id:
             return False
         # Restore the old checked action until the player confirms the switch.
         self.puzzle_actions[self.game.puzzle_id].setChecked(True)
@@ -1826,6 +2291,12 @@ class MainWindow(QMainWindow):
         self.board.setFocus()
 
     def _restart(self) -> None:
+        if self._challenge_transition:
+            return
+        if self.challenge is not None:
+            if self._confirm_challenge_leave():
+                self._start_challenge(self.challenge.spec)
+            return
         if self.game.steps and not self._confirm_discard(
                 tr(self.language, 'restart_title'), tr(self.language, 'restart_confirm')):
             return
@@ -1835,15 +2306,15 @@ class MainWindow(QMainWindow):
         self._reset_board_display()
         self._save_progress()
 
-    def _ask_save_failure(self) -> str:
+    def _ask_save_failure(self, for_challenge=False) -> str:
         t = lambda key: tr(self.language, key)
         dialog = QMessageBox(self)
-        dialog.setWindowTitle(t('save_close_title'))
-        dialog.setText(t('save_close_message'))
+        dialog.setWindowTitle(t('challenge_title' if for_challenge else 'save_close_title'))
+        dialog.setText(t('challenge_save_before' if for_challenge else 'save_close_message'))
         dialog.setIcon(QMessageBox.Icon.Warning)
         retry = dialog.addButton(t('save_retry'), QMessageBox.ButtonRole.AcceptRole)
-        discard = dialog.addButton(t('save_discard'), QMessageBox.ButtonRole.DestructiveRole)
-        cancel = dialog.addButton(t('save_cancel_close'), QMessageBox.ButtonRole.RejectRole)
+        discard = dialog.addButton(t('challenge_start_unsaved' if for_challenge else 'save_discard'), QMessageBox.ButtonRole.DestructiveRole)
+        cancel = dialog.addButton(t('confirm_no' if for_challenge else 'save_cancel_close'), QMessageBox.ButtonRole.RejectRole)
         dialog.setDefaultButton(cancel)
         dialog.setEscapeButton(cancel)
         dialog.exec()
@@ -1851,6 +2322,14 @@ class MainWindow(QMainWindow):
         return 'retry' if clicked == retry else 'discard' if clicked == discard else 'cancel'
 
     def closeEvent(self, event) -> None:
+        if self._challenge_transition:
+            event.ignore()
+            return
+        if self.challenge is not None:
+            self._close_challenge_dialog()
+            if not self._confirm_challenge_leave():
+                event.ignore()
+                return
         if self._progress_timer is not None:
             self._progress_timer.stop()
         self._win_timer.stop()
@@ -1869,6 +2348,8 @@ class MainWindow(QMainWindow):
             self._restart_confirming = False
             if self._progress_timer is not None and self._progress_timer.isActive():
                 self._queue_win_dialog()
+        if self.challenge is not None:
+            self._leave_challenge()
         self._cancel_pending_win()
         self.progress_store = None
         if self._progress_lock is not None:
@@ -1879,6 +2360,8 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
 
     def _pause(self) -> None:
+        if self.challenge is not None:
+            return
         self.game.toggle_pause()
         self._save_progress()
         self._update_stats()

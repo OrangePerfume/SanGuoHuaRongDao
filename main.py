@@ -79,10 +79,28 @@ def smoke_test() -> int:
             window._undo()
             if window.game.steps or window.profile.stats['classic']['undos'] != 1:
                 raise RuntimeError('Restored undo or statistics failed')
+            from huarongdao.challenge import ChallengeSpec
+            from huarongdao.challenge_records import ChallengeRecords
+            from huarongdao.core import shortest_path, index_for_solver_move
+            classic = window.game
+            spec = ChallengeSpec('first_arrival', 'steps', 'extreme')
+            window._start_challenge(spec)
+            for move in shortest_path(window.game.positions):
+                index = index_for_solver_move(window.game.positions, move)
+                window._make_move(index, move.target % 4 - move.source % 4, move.target // 4 - move.source // 4, 1)
+            if (window.challenge.status != 'success' or not window._challenge_saved
+                    or ChallengeRecords(Path(td), spec).load().get('steps') != spec.limit):
+                window._leave_challenge()
+                raise RuntimeError('Challenge settlement failed')
+            window._leave_challenge()
+            if window.game is not classic or window.game.steps:
+                raise RuntimeError('Classic progress isolation failed')
             window.close()
         return 0
     finally:
         if window is not None:
+            if window.challenge is not None:
+                window._leave_challenge()
             window.close()
             delete(window)
         app.processEvents()

@@ -2,6 +2,22 @@
 
 # Changelog
 
+## V0.10.0 — 2026-11-27
+
+- Add a separate challenge entry for time and move challenges across all six classic puzzles.
+- Offer Beginner, Standard, Expert and Extreme limits scaled to each puzzle’s minimum single-cell move count.
+- Start the countdown after interface preparation; disable pause, undo and solution hints. Every cell moved per piece counts, including group moves.
+- Fail at the time deadline or upon exhausting moves without solving; solving on the final allowed move succeeds.
+- Show the outcome and independent best result. Rank time challenges by time first and move challenges by moves first, breaking ties by the other metric.
+- Store results by puzzle, mode and difficulty with atomic writes, bounded validation and the existing single-writer lock; preserve invalid files and support retries.
+- Active challenges are not resumable and never modify classic saves, undo history or personal statistics. Return to the preserved classic game.
+- Localize challenge controls in all three languages, extend rule, isolation, boundary, GUI and executable smoke tests, and retain existing security and quality gates.
+- Add a challenge progress card, low-budget warning and separate result dialog using immutable results, with retry and return actions.
+- Add a record overview for all 48 combinations, distinguishing missing and unreadable records.
+- Protect classic saves before entering challenges with retry and cancel options; confirm read-only play and archive invalid records only with consent.
+- Start timing after interface preparation, constrain group-move previews and distinguish record read and write errors.
+
+
 ## V0.9.0 — 2026-11-27
 
 - Add versioned local autosaves preserving the active puzzle, steps, elapsed time, undo history and assist counters; resume unfinished games paused without counting offline time.
